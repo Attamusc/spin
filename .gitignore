@@ -1,0 +1,19 @@
+# Go binary
+spin
+/spin
+
+# IDE files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+
+# Test binaries
+*.test
+
+# Coverage
+coverage.out
