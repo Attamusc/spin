@@ -1,4 +1,5 @@
-# Go binary
+# Build output
+dist/
 spin
 /spin
 
