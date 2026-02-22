@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/fatih/color"
 	"github.com/spf13/cobra"
 )
 
@@ -48,8 +49,9 @@ func runInit(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to write .spin.toml: %w", err)
 	}
 
-	fmt.Fprintf(os.Stderr, "Created .spin.toml in %s\n\n", cwd)
-	fmt.Fprintf(os.Stderr, "Detected command: %s\n", devCommand)
+	color.New(color.FgGreen).Fprintf(os.Stderr, "Created .spin.toml in %s\n\n", cwd)
+	cyan := color.New(color.FgCyan).SprintFunc()
+	fmt.Fprintf(os.Stderr, "Detected command: %s\n", cyan(devCommand))
 	fmt.Fprintf(os.Stderr, "Dev port: 3001, Live port: 3000\n")
 
 	// Check .gitignore for .spin/ entry
@@ -112,7 +114,7 @@ func checkGitignore(dir string) {
 	gitignorePath := filepath.Join(dir, ".gitignore")
 	f, err := os.Open(gitignorePath)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "\nReminder: add '.spin/' to your .gitignore\n")
+		color.New(color.FgYellow).Fprintf(os.Stderr, "\nReminder: add '.spin/' to your .gitignore\n")
 		return
 	}
 	defer f.Close()
@@ -125,5 +127,5 @@ func checkGitignore(dir string) {
 		}
 	}
 
-	fmt.Fprintf(os.Stderr, "\nReminder: add '.spin/' to your .gitignore\n")
+	color.New(color.FgYellow).Fprintf(os.Stderr, "\nReminder: add '.spin/' to your .gitignore\n")
 }

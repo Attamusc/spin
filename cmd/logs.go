@@ -11,6 +11,7 @@ import (
 	"github.com/attamusc/spin/internal/config"
 	"github.com/attamusc/spin/internal/process"
 	"github.com/attamusc/spin/internal/resolve"
+	"github.com/fatih/color"
 	"github.com/spf13/cobra"
 )
 
@@ -22,8 +23,9 @@ Shows the last ~50 lines, then follows new output.
 Ctrl-C exits the tail without affecting the running process.
 
 If no project argument is given, the project is resolved from the current directory.`,
-	Args: cobra.MaximumNArgs(1),
-	RunE: runLogs,
+	Args:              cobra.MaximumNArgs(1),
+	ValidArgsFunction: completeProjectNames,
+	RunE:              runLogs,
 }
 
 func init() {
@@ -49,12 +51,14 @@ func runLogs(cmd *cobra.Command, args []string) error {
 	logPath := process.LogFilePath(globalCfg.DataRoot, project.Owner, project.Repo)
 
 	if _, err := os.Stat(logPath); os.IsNotExist(err) {
-		fmt.Fprintf(os.Stderr, "No log file found for %s\n", project.Name)
+		cyan := color.New(color.FgCyan).SprintFunc()
+		fmt.Fprintf(os.Stderr, "No log file found for %s\n", cyan(project.Name))
 		fmt.Fprintf(os.Stderr, "Run 'spin up' to start the live instance first.\n")
 		return nil
 	}
 
-	fmt.Fprintf(os.Stderr, "Tailing logs for %s (%s)\n", project.Name, logPath)
+	cyan := color.New(color.FgCyan).SprintFunc()
+	fmt.Fprintf(os.Stderr, "Tailing logs for %s (%s)\n", cyan(project.Name), logPath)
 	fmt.Fprintf(os.Stderr, "Press Ctrl-C to stop tailing\n\n")
 
 	return tailFile(logPath)

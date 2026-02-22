@@ -8,6 +8,7 @@ import (
 
 	"github.com/attamusc/spin/internal/config"
 	"github.com/attamusc/spin/internal/discovery"
+	"github.com/fatih/color"
 	"github.com/spf13/cobra"
 )
 
@@ -40,6 +41,8 @@ func runList(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
+	cyan := color.New(color.FgCyan).SprintFunc()
+
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 4, ' ', 0)
 	for _, p := range projects {
 		// Replace home dir with ~ for display
@@ -48,7 +51,7 @@ func runList(cmd *cobra.Command, args []string) error {
 		if err == nil {
 			displayDir = strings.Replace(displayDir, home, "~", 1)
 		}
-		fmt.Fprintf(w, "%s\t%s\n", p.Name, displayDir)
+		fmt.Fprintf(w, "%s\t%s\n", cyan(p.Name), displayDir)
 	}
 	w.Flush()
 

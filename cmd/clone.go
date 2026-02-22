@@ -7,6 +7,7 @@ import (
 	"github.com/attamusc/spin/internal/config"
 	"github.com/attamusc/spin/internal/db"
 	"github.com/attamusc/spin/internal/resolve"
+	"github.com/fatih/color"
 	"github.com/spf13/cobra"
 )
 
@@ -76,7 +77,7 @@ func runClone(cmd *cobra.Command, args []string) error {
 
 	// WAL checkpoint the source
 	if err := db.WalCheckpoint(srcDBPath); err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: WAL checkpoint failed: %v\n", err)
+		color.New(color.FgYellow).Fprintf(os.Stderr, "Warning: WAL checkpoint failed: %v\n", err)
 	}
 
 	// Get destination DB path
@@ -96,7 +97,8 @@ func runClone(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to clone database: %w", err)
 	}
 
-	fmt.Fprintf(os.Stderr, "Cloned %s → %s for %s\n", srcProfile, dstProfile, project.Name)
+	cyan := color.New(color.FgCyan).SprintFunc()
+	color.New(color.FgGreen).Fprintf(os.Stderr, "Cloned %s → %s for %s\n", srcProfile, dstProfile, cyan(project.Name))
 
 	return nil
 }

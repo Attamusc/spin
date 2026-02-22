@@ -7,6 +7,7 @@ import (
 	"github.com/attamusc/spin/internal/config"
 	"github.com/attamusc/spin/internal/db"
 	"github.com/attamusc/spin/internal/resolve"
+	"github.com/fatih/color"
 	"github.com/spf13/cobra"
 )
 
@@ -70,7 +71,8 @@ func runReset(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to reset database: %w", err)
 	}
 
-	fmt.Fprintf(os.Stderr, "Reset %s database for %s\n", profile, project.Name)
+	cyan := color.New(color.FgCyan).SprintFunc()
+	color.New(color.FgGreen).Fprintf(os.Stderr, "Reset %s database for %s\n", profile, cyan(project.Name))
 	fmt.Fprintf(os.Stderr, "The database will be recreated on next start.\n")
 
 	return nil

@@ -7,6 +7,7 @@ import (
 	"github.com/attamusc/spin/internal/config"
 	"github.com/attamusc/spin/internal/process"
 	"github.com/attamusc/spin/internal/resolve"
+	"github.com/fatih/color"
 	"github.com/spf13/cobra"
 )
 
@@ -17,8 +18,9 @@ var devCmd = &cobra.Command{
 The dev profile uses a separate database for data isolation.
 
 If no project argument is given, the project is resolved from the current directory.`,
-	Args: cobra.MaximumNArgs(1),
-	RunE: runDev,
+	Args:              cobra.MaximumNArgs(1),
+	ValidArgsFunction: completeProjectNames,
+	RunE:              runDev,
 }
 
 func init() {
@@ -57,7 +59,8 @@ func runDev(cmd *cobra.Command, args []string) error {
 	// Resolve environment variables
 	env := config.ResolveEnv(project.Config.Dev.Env, dbPath)
 
-	fmt.Fprintf(os.Stderr, "Starting dev mode for %s...\n", project.Name)
+	cyan := color.New(color.FgCyan).SprintFunc()
+	color.New(color.FgGreen).Fprintf(os.Stderr, "Starting dev mode for %s...\n", cyan(project.Name))
 
 	// Run the foreground process
 	exitCode, err := process.RunForeground(process.ForegroundOptions{

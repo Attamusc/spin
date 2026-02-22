@@ -7,6 +7,7 @@ import (
 	"github.com/attamusc/spin/internal/config"
 	"github.com/attamusc/spin/internal/db"
 	"github.com/attamusc/spin/internal/resolve"
+	"github.com/fatih/color"
 	"github.com/spf13/cobra"
 )
 
@@ -65,7 +66,7 @@ func runSnapshot(cmd *cobra.Command, args []string) error {
 
 	// Run WAL checkpoint
 	if err := db.WalCheckpoint(dbPath); err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: WAL checkpoint failed: %v\n", err)
+		color.New(color.FgYellow).Fprintf(os.Stderr, "Warning: WAL checkpoint failed: %v\n", err)
 	}
 
 	// Copy to snapshot location
@@ -74,7 +75,8 @@ func runSnapshot(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to create snapshot: %w", err)
 	}
 
-	fmt.Fprintf(os.Stderr, "Snapshot '%s' created for %s (%s profile)\n", name, project.Name, profile)
+	cyan := color.New(color.FgCyan).SprintFunc()
+	color.New(color.FgGreen).Fprintf(os.Stderr, "Snapshot '%s' created for %s (%s profile)\n", name, cyan(project.Name), profile)
 	fmt.Fprintf(os.Stderr, "  %s\n", snapshotPath)
 
 	return nil

@@ -7,6 +7,7 @@ import (
 	"github.com/attamusc/spin/internal/config"
 	"github.com/attamusc/spin/internal/db"
 	"github.com/attamusc/spin/internal/resolve"
+	"github.com/fatih/color"
 	"github.com/spf13/cobra"
 )
 
@@ -73,7 +74,8 @@ func runRestore(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to restore snapshot: %w", err)
 	}
 
-	fmt.Fprintf(os.Stderr, "Restored snapshot '%s' to %s (%s profile)\n", name, project.Name, profile)
+	cyan := color.New(color.FgCyan).SprintFunc()
+	color.New(color.FgGreen).Fprintf(os.Stderr, "Restored snapshot '%s' to %s (%s profile)\n", name, cyan(project.Name), profile)
 
 	return nil
 }

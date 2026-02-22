@@ -7,6 +7,7 @@ import (
 	"github.com/attamusc/spin/internal/config"
 	"github.com/attamusc/spin/internal/process"
 	"github.com/attamusc/spin/internal/resolve"
+	"github.com/fatih/color"
 	"github.com/spf13/cobra"
 )
 
@@ -17,8 +18,9 @@ var downCmd = &cobra.Command{
 Sends SIGTERM first, then SIGKILL after 5 seconds if needed.
 
 If no project argument is given, the project is resolved from the current directory.`,
-	Args: cobra.MaximumNArgs(1),
-	RunE: runDown,
+	Args:              cobra.MaximumNArgs(1),
+	ValidArgsFunction: completeProjectNames,
+	RunE:              runDown,
 }
 
 func init() {
@@ -43,10 +45,12 @@ func runDown(cmd *cobra.Command, args []string) error {
 
 	pidFile := process.PIDFilePath(globalCfg.DataRoot, project.Owner, project.Repo)
 
+	cyan := color.New(color.FgCyan).SprintFunc()
+
 	pid, err := process.ReadPID(pidFile)
 	if err != nil {
 		if os.IsNotExist(err) {
-			fmt.Fprintf(os.Stderr, "%s is not running\n", project.Name)
+			fmt.Fprintf(os.Stderr, "%s is not running\n", cyan(project.Name))
 			return nil
 		}
 		return fmt.Errorf("could not read PID file: %w", err)
@@ -55,12 +59,12 @@ func runDown(cmd *cobra.Command, args []string) error {
 	if !process.IsProcessAlive(pid) {
 		// Clean up stale PID file
 		_ = os.Remove(pidFile)
-		fmt.Fprintf(os.Stderr, "%s is already stopped (cleaned up stale PID file)\n", project.Name)
+		color.New(color.FgYellow).Fprintf(os.Stderr, "%s is already stopped (cleaned up stale PID file)\n", cyan(project.Name))
 		return nil
 	}
 
 	// Stop the process
-	fmt.Fprintf(os.Stderr, "Stopping %s (PID %d)...\n", project.Name, pid)
+	fmt.Fprintf(os.Stderr, "Stopping %s (PID %d)...\n", cyan(project.Name), pid)
 	if err := process.StopBackground(pid); err != nil {
 		return fmt.Errorf("failed to stop process: %w", err)
 	}
@@ -68,6 +72,6 @@ func runDown(cmd *cobra.Command, args []string) error {
 	// Remove PID file
 	_ = os.Remove(pidFile)
 
-	fmt.Fprintf(os.Stderr, "Stopped %s\n", project.Name)
+	color.New(color.FgGreen).Fprintf(os.Stderr, "Stopped %s\n", cyan(project.Name))
 	return nil
 }

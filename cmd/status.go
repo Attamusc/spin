@@ -9,6 +9,7 @@ import (
 
 	"github.com/attamusc/spin/internal/config"
 	"github.com/attamusc/spin/internal/process"
+	"github.com/fatih/color"
 	"github.com/spf13/cobra"
 )
 
@@ -46,13 +47,16 @@ func runStatus(cmd *cobra.Command, args []string) error {
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 3, ' ', 0)
 	fmt.Fprintln(w, "PROJECT\tMODE\tPORT\tPID\tUPTIME")
 
+	cyan := color.New(color.FgCyan).SprintFunc()
+	green := color.New(color.FgGreen).SprintFunc()
+
 	for _, e := range entries {
 		portStr := "-"
 		if e.port > 0 {
 			portStr = fmt.Sprintf("%d", e.port)
 		}
-		fmt.Fprintf(w, "%s/%s\t%s\t%s\t%d\t%s\n",
-			e.owner, e.repo, "live", portStr, e.pid, formatDuration(e.uptime))
+		fmt.Fprintf(w, "%s\t%s\t%s\t%d\t%s\n",
+			cyan(fmt.Sprintf("%s/%s", e.owner, e.repo)), green("live"), portStr, e.pid, formatDuration(e.uptime))
 	}
 
 	w.Flush()

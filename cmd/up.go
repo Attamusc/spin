@@ -7,6 +7,7 @@ import (
 	"github.com/attamusc/spin/internal/config"
 	"github.com/attamusc/spin/internal/process"
 	"github.com/attamusc/spin/internal/resolve"
+	"github.com/fatih/color"
 	"github.com/spf13/cobra"
 )
 
@@ -18,8 +19,9 @@ The live profile uses a separate database for data isolation.
 stdout/stderr are redirected to a log file.
 
 If no project argument is given, the project is resolved from the current directory.`,
-	Args: cobra.MaximumNArgs(1),
-	RunE: runUp,
+	Args:              cobra.MaximumNArgs(1),
+	ValidArgsFunction: completeProjectNames,
+	RunE:              runUp,
 }
 
 func init() {
@@ -47,7 +49,8 @@ func runUp(cmd *cobra.Command, args []string) error {
 	pidFile := process.PIDFilePath(globalCfg.DataRoot, project.Owner, project.Repo)
 	pid, err := process.ReadPID(pidFile)
 	if err == nil && process.IsProcessAlive(pid) {
-		fmt.Fprintf(os.Stderr, "%s is already running (PID %d)\n", project.Name, pid)
+		cyan := color.New(color.FgCyan).SprintFunc()
+		fmt.Fprintf(os.Stderr, "%s is already running (PID %d)\n", cyan(project.Name), pid)
 		return nil
 	}
 	// Clean up stale PID file if present
@@ -89,9 +92,11 @@ func runUp(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to start live mode: %w", err)
 	}
 
-	fmt.Fprintf(os.Stderr, "Started %s in live mode (PID %d)", project.Name, childPID)
+	cyan := color.New(color.FgCyan).SprintFunc()
+	green := color.New(color.FgGreen)
+	green.Fprintf(os.Stderr, "Started %s in live mode (PID %d)", cyan(project.Name), childPID)
 	if project.Config.Live.Port > 0 {
-		fmt.Fprintf(os.Stderr, " on port %d", project.Config.Live.Port)
+		green.Fprintf(os.Stderr, " on port %d", project.Config.Live.Port)
 	}
 	fmt.Fprintln(os.Stderr)
 
@@ -111,7 +116,7 @@ func checkPortConflicts(globalCfg *config.GlobalConfig, project *resolve.Resolve
 			continue // Skip self
 		}
 		if entry.port == project.Config.Live.Port {
-			fmt.Fprintf(os.Stderr, "Warning: port %d is also configured for %s/%s (PID %d)\n",
+			color.New(color.FgYellow).Fprintf(os.Stderr, "Warning: port %d is also configured for %s/%s (PID %d)\n",
 				project.Config.Live.Port, entry.owner, entry.repo, entry.pid)
 		}
 	}
