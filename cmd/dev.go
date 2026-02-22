@@ -32,15 +32,12 @@ func runDev(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to load global config: %w", err)
 	}
 
-	// Resolve project
-	var project *resolve.ResolvedProject
+	// Resolve project (from argument or CWD)
+	var arg string
 	if len(args) > 0 {
-		// Full name resolution will be added in Phase 3
-		// For now, only CWD-based resolution is supported
-		return fmt.Errorf("project argument not yet supported, run from within a project directory")
+		arg = args[0]
 	}
-
-	project, err = resolve.FromCWD(globalCfg.ProjectsRoot)
+	project, err := resolve.Resolve(arg, globalCfg.ProjectsRoot)
 	if err != nil {
 		return fmt.Errorf("failed to resolve project: %w", err)
 	}
