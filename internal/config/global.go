@@ -10,8 +10,11 @@ import (
 
 // GlobalConfig holds the global spin configuration.
 type GlobalConfig struct {
-	ProjectsRoot string `toml:"projects_root"`
-	DataRoot     string // computed: {ProjectsRoot}/.spin/
+	ProjectsRoot string            `toml:"projects_root"`
+	DefaultHost  string            `toml:"default_host"`  // default git host for cloning/navigation
+	DefaultOwner string            `toml:"default_owner"` // default owner for short-name resolution
+	Templates    map[string]string `toml:"templates"`     // named template directories for spin new
+	DataRoot     string            // computed: {ProjectsRoot}/.spin/
 }
 
 // globalConfigPath returns the path to the global config file.
@@ -88,6 +91,21 @@ func LoadGlobalFrom(configPath string) (*GlobalConfig, error) {
 		return nil, err
 	}
 	cfg.ProjectsRoot = expanded
+
+	// Apply defaults for new fields
+	if cfg.DefaultHost == "" {
+		cfg.DefaultHost = "github.com"
+	}
+	// DefaultOwner defaults to "" (no short-name-to-clone fallback)
+
+	// Expand ~ in template paths
+	for name, tmplPath := range cfg.Templates {
+		expanded, err := expandHome(tmplPath)
+		if err != nil {
+			return nil, fmt.Errorf("could not expand template path %q: %w", tmplPath, err)
+		}
+		cfg.Templates[name] = expanded
+	}
 
 	// Verify ProjectsRoot exists
 	info, err := os.Stat(cfg.ProjectsRoot)

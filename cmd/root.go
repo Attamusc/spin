@@ -58,13 +58,18 @@ func runRoot(cmd *cobra.Command, args []string) error {
 
 	// Show brief help
 	fmt.Fprintf(os.Stderr, "%s\n\n", bold("Common commands:"))
+	fmt.Fprintf(os.Stderr, "  %s           Navigate to a project directory\n", cyan("spin go"))
 	fmt.Fprintf(os.Stderr, "  %s          Run a project in dev mode (foregrounded)\n", cyan("spin dev"))
 	fmt.Fprintf(os.Stderr, "  %s           Start a project in live mode (backgrounded)\n", cyan("spin up"))
 	fmt.Fprintf(os.Stderr, "  %s         Stop a live instance\n", cyan("spin down"))
 	fmt.Fprintf(os.Stderr, "  %s       Show running instances\n", cyan("spin status"))
 	fmt.Fprintf(os.Stderr, "  %s         Tail live instance logs\n", cyan("spin logs"))
-	fmt.Fprintf(os.Stderr, "  %s         List all discoverable projects\n", cyan("spin list"))
+	fmt.Fprintf(os.Stderr, "  %s         List all projects\n", cyan("spin list"))
+	fmt.Fprintf(os.Stderr, "  %s        Clone a git repo\n", cyan("spin clone"))
+	fmt.Fprintf(os.Stderr, "  %s          Create a new project\n", cyan("spin new"))
+	fmt.Fprintf(os.Stderr, "  %s       Fetch latest for all repos\n", cyan("spin update"))
 	fmt.Fprintf(os.Stderr, "  %s         Initialize a new .spin.toml\n", cyan("spin init"))
+	fmt.Fprintf(os.Stderr, "  %s           Database operations (copy, snapshot, restore, reset)\n", cyan("spin db"))
 	fmt.Fprintln(os.Stderr)
 	fmt.Fprintf(os.Stderr, "Run %s for full usage.\n", cyan("spin help"))
 
@@ -73,6 +78,7 @@ func runRoot(cmd *cobra.Command, args []string) error {
 
 // completeProjectNames returns a cobra completion function that suggests
 // discovered project names (owner/repo format) for tab completion.
+// This uses ScanAll to include all projects, not just those with .spin.toml.
 func completeProjectNames(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 	// Only complete the first argument (project name)
 	if len(args) > 0 {
@@ -84,7 +90,7 @@ func completeProjectNames(cmd *cobra.Command, args []string, toComplete string) 
 		return nil, cobra.ShellCompDirectiveNoFileComp
 	}
 
-	projects, err := discovery.Scan(globalCfg.ProjectsRoot)
+	projects, err := discovery.ScanAll(globalCfg.ProjectsRoot)
 	if err != nil {
 		return nil, cobra.ShellCompDirectiveNoFileComp
 	}

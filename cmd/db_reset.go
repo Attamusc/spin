@@ -11,7 +11,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var resetCmd = &cobra.Command{
+var dbResetCmd = &cobra.Command{
 	Use:   "reset [profile]",
 	Short: "Delete a profile's database",
 	Long: `Delete a profile's SQLite database file (and WAL/SHM files if present).
@@ -19,14 +19,14 @@ var resetCmd = &cobra.Command{
 The application will recreate the database on the next start.
 Will refuse if the profile is "live" and the process is running.`,
 	Args: cobra.ExactArgs(1),
-	RunE: runReset,
+	RunE: runDBReset,
 }
 
 func init() {
-	rootCmd.AddCommand(resetCmd)
+	dbCmd.AddCommand(dbResetCmd)
 }
 
-func runReset(cmd *cobra.Command, args []string) error {
+func runDBReset(cmd *cobra.Command, args []string) error {
 	profile := args[0]
 
 	if profile != "dev" && profile != "live" {
@@ -43,7 +43,7 @@ func runReset(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to resolve project: %w", err)
 	}
 
-	// Check if live profile is running
+	// Check if profile is running
 	if db.IsProfileRunning(globalCfg.DataRoot, project.Owner, project.Repo, profile) {
 		return fmt.Errorf("cannot reset '%s' profile while it is running. Run 'spin down' first", profile)
 	}

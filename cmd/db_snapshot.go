@@ -11,7 +11,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var snapshotCmd = &cobra.Command{
+var dbSnapshotCmd = &cobra.Command{
 	Use:   "snapshot [profile] [name]",
 	Short: "Create a named snapshot of a profile's database",
 	Long: `Create a named snapshot of a profile's SQLite database.
@@ -21,14 +21,14 @@ A WAL checkpoint is performed before copying.
 
 Profile must be "dev" or "live".`,
 	Args: cobra.ExactArgs(2),
-	RunE: runSnapshot,
+	RunE: runDBSnapshot,
 }
 
 func init() {
-	rootCmd.AddCommand(snapshotCmd)
+	dbCmd.AddCommand(dbSnapshotCmd)
 }
 
-func runSnapshot(cmd *cobra.Command, args []string) error {
+func runDBSnapshot(cmd *cobra.Command, args []string) error {
 	profile := args[0]
 	name := args[1]
 
@@ -41,7 +41,7 @@ func runSnapshot(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to load global config: %w", err)
 	}
 
-	// Resolve project from CWD (snapshot doesn't take a project arg in positional args)
+	// Resolve project from CWD
 	project, err := resolve.FromCWD(globalCfg.ProjectsRoot)
 	if err != nil {
 		return fmt.Errorf("failed to resolve project: %w", err)

@@ -194,3 +194,165 @@ func resolveFromProjectDir(projectDir, projectsRoot string) (*ResolvedProject, e
 		Config: cfg,
 	}, nil
 }
+
+// ResolvedDir holds project directory info without requiring .spin.toml.
+// Used by navigation commands (spin go) that work with any project directory.
+type ResolvedDir struct {
+	Host  string // e.g., "github.com"
+	Owner string // e.g., "attamusc"
+	Repo  string // e.g., "mindtrail"
+	Name  string // "owner/repo" for display
+	Dir   string // absolute path to project directory
+}
+
+// ResolveAny resolves a project directory by name without requiring .spin.toml.
+// Falls back to defaultOwner for bare repo names when looking up owner/repo.
+// If arg is empty, resolves from CWD.
+func ResolveAny(arg, projectsRoot, defaultOwner string) (*ResolvedDir, error) {
+	if arg == "" {
+		return resolveAnyCWD(projectsRoot)
+	}
+	return resolveAnyByName(arg, projectsRoot, defaultOwner)
+}
+
+// resolveAnyCWD resolves a project directory from the current working directory
+// without requiring .spin.toml. The CWD must be within a host/owner/repo
+// directory under projectsRoot.
+func resolveAnyCWD(projectsRoot string) (*ResolvedDir, error) {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return nil, fmt.Errorf("could not get working directory: %w", err)
+	}
+
+	absDir, err := filepath.Abs(cwd)
+	if err != nil {
+		return nil, fmt.Errorf("could not resolve absolute path: %w", err)
+	}
+	absRoot, err := filepath.Abs(projectsRoot)
+	if err != nil {
+		return nil, fmt.Errorf("could not resolve absolute path: %w", err)
+	}
+
+	if !strings.HasPrefix(absDir, absRoot+string(filepath.Separator)) && absDir != absRoot {
+		return nil, fmt.Errorf("current directory %s is not within projects_root %s", absDir, absRoot)
+	}
+
+	rel, err := filepath.Rel(absRoot, absDir)
+	if err != nil {
+		return nil, fmt.Errorf("could not compute relative path: %w", err)
+	}
+
+	parts := strings.Split(rel, string(filepath.Separator))
+	if len(parts) < 3 {
+		return nil, fmt.Errorf("current directory is not deep enough within projects_root to identify a project (need host/owner/repo)")
+	}
+
+	host := parts[0]
+	owner := parts[1]
+	repo := parts[2]
+	dir := filepath.Join(absRoot, host, owner, repo)
+
+	return &ResolvedDir{
+		Host:  host,
+		Owner: owner,
+		Repo:  repo,
+		Name:  owner + "/" + repo,
+		Dir:   dir,
+	}, nil
+}
+
+// resolveAnyByName resolves a project directory by name without requiring .spin.toml.
+func resolveAnyByName(name, projectsRoot, defaultOwner string) (*ResolvedDir, error) {
+	absRoot, err := filepath.Abs(projectsRoot)
+	if err != nil {
+		return nil, fmt.Errorf("could not resolve absolute path: %w", err)
+	}
+
+	// If name contains /, treat as owner/repo
+	if strings.Contains(name, "/") {
+		return resolveOwnerRepoAny(name, absRoot)
+	}
+
+	// Short name — scan all projects for a match
+	return resolveShortNameAny(name, absRoot, defaultOwner)
+}
+
+// resolveOwnerRepoAny resolves "owner/repo" by checking directory existence
+// (no .spin.toml required) under any host in projectsRoot.
+func resolveOwnerRepoAny(ownerRepo, projectsRoot string) (*ResolvedDir, error) {
+	hosts, err := os.ReadDir(projectsRoot)
+	if err != nil {
+		return nil, fmt.Errorf("could not read projects root: %w", err)
+	}
+
+	for _, host := range hosts {
+		if !host.IsDir() || strings.HasPrefix(host.Name(), ".") {
+			continue
+		}
+		dir := filepath.Join(projectsRoot, host.Name(), ownerRepo)
+		info, err := os.Stat(dir)
+		if err == nil && info.IsDir() {
+			parts := strings.SplitN(ownerRepo, "/", 2)
+			return &ResolvedDir{
+				Host:  host.Name(),
+				Owner: parts[0],
+				Repo:  parts[1],
+				Name:  ownerRepo,
+				Dir:   dir,
+			}, nil
+		}
+	}
+
+	return nil, fmt.Errorf("project %q not found. Run 'spin list' to see available projects", ownerRepo)
+}
+
+// resolveShortNameAny resolves a short repo name by scanning all projects
+// (not just .spin.toml projects). If no match is found and defaultOwner is set,
+// returns an error indicating the project could be cloned.
+func resolveShortNameAny(name, projectsRoot, defaultOwner string) (*ResolvedDir, error) {
+	projects, err := discovery.ScanAll(projectsRoot)
+	if err != nil {
+		return nil, fmt.Errorf("could not scan projects: %w", err)
+	}
+
+	var matches []discovery.DiscoveredProject
+	for _, p := range projects {
+		if strings.EqualFold(p.Repo, name) {
+			matches = append(matches, p)
+		}
+	}
+
+	switch len(matches) {
+	case 0:
+		// No match — provide suggestions
+		var suggestions []string
+		lowerName := strings.ToLower(name)
+		for _, p := range projects {
+			if strings.Contains(strings.ToLower(p.Repo), lowerName) || strings.Contains(strings.ToLower(p.Name), lowerName) {
+				suggestions = append(suggestions, p.Name)
+			}
+		}
+		if len(suggestions) > 0 {
+			return nil, fmt.Errorf("project %q not found. Did you mean one of these?\n  %s",
+				name, strings.Join(suggestions, "\n  "))
+		}
+		return nil, fmt.Errorf("project %q not found. Run 'spin list' to see available projects", name)
+
+	case 1:
+		return &ResolvedDir{
+			Host:  matches[0].Host,
+			Owner: matches[0].Owner,
+			Repo:  matches[0].Repo,
+			Name:  matches[0].Name,
+			Dir:   matches[0].Dir,
+		}, nil
+
+	default:
+		var names []string
+		for _, m := range matches {
+			names = append(names, m.Name)
+		}
+		return nil, fmt.Errorf("ambiguous project name %q matches multiple projects:\n  %s\nPlease specify as owner/repo",
+			name, strings.Join(names, "\n  "))
+	}
+}

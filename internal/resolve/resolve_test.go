@@ -275,3 +275,169 @@ func TestResolve_WithArg_ShortName(t *testing.T) {
 		t.Errorf("expected Repo=myapp, got %q", rp.Repo)
 	}
 }
+
+// --- ResolveAny tests (config-optional resolution) ---
+
+// helper to create a project directory WITHOUT .spin.toml
+func createDirOnly(t *testing.T, base, host, owner, repo string) string {
+	t.Helper()
+	dir := filepath.Join(base, host, owner, repo)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	return dir
+}
+
+func TestResolveAny_OwnerRepo_WithoutConfig(t *testing.T) {
+	tmpDir := t.TempDir()
+	expectedDir := createDirOnly(t, tmpDir, "github.com", "attamusc", "nocfg")
+
+	rd, err := ResolveAny("attamusc/nocfg", tmpDir, "")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if rd.Host != "github.com" {
+		t.Errorf("expected Host=github.com, got %q", rd.Host)
+	}
+	if rd.Owner != "attamusc" {
+		t.Errorf("expected Owner=attamusc, got %q", rd.Owner)
+	}
+	if rd.Repo != "nocfg" {
+		t.Errorf("expected Repo=nocfg, got %q", rd.Repo)
+	}
+	if rd.Name != "attamusc/nocfg" {
+		t.Errorf("expected Name=attamusc/nocfg, got %q", rd.Name)
+	}
+	if rd.Dir != expectedDir {
+		t.Errorf("expected Dir=%q, got %q", expectedDir, rd.Dir)
+	}
+}
+
+func TestResolveAny_OwnerRepo_WithConfig(t *testing.T) {
+	tmpDir := t.TempDir()
+	expectedDir := createProject(t, tmpDir, "github.com", "attamusc", "hascfg")
+
+	rd, err := ResolveAny("attamusc/hascfg", tmpDir, "")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if rd.Dir != expectedDir {
+		t.Errorf("expected Dir=%q, got %q", expectedDir, rd.Dir)
+	}
+}
+
+func TestResolveAny_OwnerRepo_NotFound(t *testing.T) {
+	tmpDir := t.TempDir()
+	createDirOnly(t, tmpDir, "github.com", "attamusc", "exists")
+
+	_, err := ResolveAny("someone/nonexistent", tmpDir, "")
+	if err == nil {
+		t.Fatal("expected error for non-existent owner/repo, got nil")
+	}
+	if !strings.Contains(err.Error(), "not found") {
+		t.Errorf("expected 'not found' in error, got: %v", err)
+	}
+}
+
+func TestResolveAny_ShortName_UniqueMatch(t *testing.T) {
+	tmpDir := t.TempDir()
+	expectedDir := createDirOnly(t, tmpDir, "github.com", "attamusc", "myproj")
+
+	rd, err := ResolveAny("myproj", tmpDir, "")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if rd.Owner != "attamusc" {
+		t.Errorf("expected Owner=attamusc, got %q", rd.Owner)
+	}
+	if rd.Repo != "myproj" {
+		t.Errorf("expected Repo=myproj, got %q", rd.Repo)
+	}
+	if rd.Dir != expectedDir {
+		t.Errorf("expected Dir=%q, got %q", expectedDir, rd.Dir)
+	}
+}
+
+func TestResolveAny_ShortName_CaseInsensitive(t *testing.T) {
+	tmpDir := t.TempDir()
+	createDirOnly(t, tmpDir, "github.com", "attamusc", "myproj")
+
+	rd, err := ResolveAny("MyProj", tmpDir, "")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if rd.Repo != "myproj" {
+		t.Errorf("expected Repo=myproj, got %q", rd.Repo)
+	}
+}
+
+func TestResolveAny_ShortName_AmbiguousMatch(t *testing.T) {
+	tmpDir := t.TempDir()
+	createDirOnly(t, tmpDir, "github.com", "attamusc", "webapp")
+	createDirOnly(t, tmpDir, "github.com", "otheruser", "webapp")
+
+	_, err := ResolveAny("webapp", tmpDir, "")
+	if err == nil {
+		t.Fatal("expected error for ambiguous short name, got nil")
+	}
+	if !strings.Contains(err.Error(), "ambiguous") {
+		t.Errorf("expected 'ambiguous' in error, got: %v", err)
+	}
+}
+
+func TestResolveAny_ShortName_NoMatch_WithSuggestions(t *testing.T) {
+	tmpDir := t.TempDir()
+	createDirOnly(t, tmpDir, "github.com", "attamusc", "mindtrail")
+
+	_, err := ResolveAny("mind", tmpDir, "")
+	if err == nil {
+		t.Fatal("expected error for no exact match, got nil")
+	}
+	if !strings.Contains(err.Error(), "mindtrail") || !strings.Contains(err.Error(), "Did you mean") {
+		t.Errorf("expected suggestion containing 'mindtrail', got: %v", err)
+	}
+}
+
+func TestResolveAny_ShortName_NoMatch_NoSuggestions(t *testing.T) {
+	tmpDir := t.TempDir()
+	createDirOnly(t, tmpDir, "github.com", "attamusc", "myproj")
+
+	_, err := ResolveAny("zzzzz", tmpDir, "")
+	if err == nil {
+		t.Fatal("expected error for no match, got nil")
+	}
+	if !strings.Contains(err.Error(), "not found") {
+		t.Errorf("expected 'not found' in error, got: %v", err)
+	}
+}
+
+func TestResolveAny_EmptyArg_ErrorsOutsideRoot(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// CWD is not within tmpDir, so should error
+	_, err := ResolveAny("", tmpDir, "")
+	if err == nil {
+		t.Fatal("expected error when CWD is outside projects_root, got nil")
+	}
+}
+
+func TestResolveAny_OwnerRepo_MultipleHosts(t *testing.T) {
+	tmpDir := t.TempDir()
+	// Same owner/repo under two hosts — both are directories
+	createDirOnly(t, tmpDir, "github.com", "attamusc", "dualhost")
+	createDirOnly(t, tmpDir, "gitlab.com", "attamusc", "dualhost")
+
+	rd, err := ResolveAny("attamusc/dualhost", tmpDir, "")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Should find one of them (first host alphabetically)
+	if rd.Owner != "attamusc" || rd.Repo != "dualhost" {
+		t.Errorf("expected attamusc/dualhost, got %s/%s", rd.Owner, rd.Repo)
+	}
+}

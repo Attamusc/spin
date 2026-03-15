@@ -140,3 +140,129 @@ func TestExpandHome(t *testing.T) {
 		}
 	}
 }
+
+func TestLoadGlobal_DefaultHostAndOwner(t *testing.T) {
+	tmpDir := t.TempDir()
+	projectsRoot := filepath.Join(tmpDir, "projects")
+	if err := os.MkdirAll(projectsRoot, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	// Config with only projects_root — new fields should get defaults
+	configPath := filepath.Join(tmpDir, "config.toml")
+	content := `projects_root = "` + projectsRoot + `"` + "\n"
+	if err := os.WriteFile(configPath, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := LoadGlobalFrom(configPath)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if cfg.DefaultHost != "github.com" {
+		t.Errorf("expected DefaultHost=github.com, got %q", cfg.DefaultHost)
+	}
+	if cfg.DefaultOwner != "" {
+		t.Errorf("expected DefaultOwner=\"\", got %q", cfg.DefaultOwner)
+	}
+	if cfg.Templates != nil {
+		t.Errorf("expected Templates=nil, got %v", cfg.Templates)
+	}
+}
+
+func TestLoadGlobal_CustomHostAndOwner(t *testing.T) {
+	tmpDir := t.TempDir()
+	projectsRoot := filepath.Join(tmpDir, "projects")
+	if err := os.MkdirAll(projectsRoot, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	configPath := filepath.Join(tmpDir, "config.toml")
+	content := `projects_root = "` + projectsRoot + `"
+default_host = "gitlab.com"
+default_owner = "myuser"
+`
+	if err := os.WriteFile(configPath, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := LoadGlobalFrom(configPath)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if cfg.DefaultHost != "gitlab.com" {
+		t.Errorf("expected DefaultHost=gitlab.com, got %q", cfg.DefaultHost)
+	}
+	if cfg.DefaultOwner != "myuser" {
+		t.Errorf("expected DefaultOwner=myuser, got %q", cfg.DefaultOwner)
+	}
+}
+
+func TestLoadGlobal_Templates(t *testing.T) {
+	tmpDir := t.TempDir()
+	projectsRoot := filepath.Join(tmpDir, "projects")
+	tmplDir := filepath.Join(tmpDir, "templates", "default")
+	if err := os.MkdirAll(projectsRoot, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(tmplDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	configPath := filepath.Join(tmpDir, "config.toml")
+	content := `projects_root = "` + projectsRoot + `"
+
+[templates]
+default = "` + tmplDir + `"
+`
+	if err := os.WriteFile(configPath, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := LoadGlobalFrom(configPath)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(cfg.Templates) != 1 {
+		t.Fatalf("expected 1 template, got %d", len(cfg.Templates))
+	}
+	if cfg.Templates["default"] != tmplDir {
+		t.Errorf("expected template default=%q, got %q", tmplDir, cfg.Templates["default"])
+	}
+}
+
+func TestLoadGlobal_TemplateTildeExpansion(t *testing.T) {
+	tmpDir := t.TempDir()
+	projectsRoot := filepath.Join(tmpDir, "projects")
+	if err := os.MkdirAll(projectsRoot, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	configPath := filepath.Join(tmpDir, "config.toml")
+	content := `projects_root = "` + projectsRoot + `"
+
+[templates]
+default = "~/dotfiles/templates/project"
+`
+	if err := os.WriteFile(configPath, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := LoadGlobalFrom(configPath)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	expected := filepath.Join(home, "dotfiles", "templates", "project")
+	if cfg.Templates["default"] != expected {
+		t.Errorf("expected template default=%q, got %q", expected, cfg.Templates["default"])
+	}
+}

@@ -11,7 +11,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var restoreCmd = &cobra.Command{
+var dbRestoreCmd = &cobra.Command{
 	Use:   "restore [profile] [name]",
 	Short: "Restore a profile's database from a named snapshot",
 	Long: `Restore a profile's SQLite database from a previously saved snapshot.
@@ -21,14 +21,14 @@ to the profile's database path, overwriting any existing data.
 
 Will refuse to restore to the "live" profile if the process is running.`,
 	Args: cobra.ExactArgs(2),
-	RunE: runRestore,
+	RunE: runDBRestore,
 }
 
 func init() {
-	rootCmd.AddCommand(restoreCmd)
+	dbCmd.AddCommand(dbRestoreCmd)
 }
 
-func runRestore(cmd *cobra.Command, args []string) error {
+func runDBRestore(cmd *cobra.Command, args []string) error {
 	profile := args[0]
 	name := args[1]
 
@@ -46,7 +46,7 @@ func runRestore(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to resolve project: %w", err)
 	}
 
-	// Check if live profile is running
+	// Check if profile is running
 	if db.IsProfileRunning(globalCfg.DataRoot, project.Owner, project.Repo, profile) {
 		return fmt.Errorf("cannot restore to '%s' profile while it is running. Run 'spin down' first", profile)
 	}
