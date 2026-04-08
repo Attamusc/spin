@@ -81,6 +81,8 @@ func runGo(cmd *cobra.Command, args []string) error {
 
 // completeAllProjectNames returns a cobra completion function that suggests
 // ALL discovered project names (including those without .spin.toml).
+// When toComplete is non-empty, results are fuzzy-filtered using segment-wise
+// substring matching so the shell receives only matching candidates.
 func completeAllProjectNames(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 	if len(args) > 0 {
 		return nil, cobra.ShellCompDirectiveNoFileComp
@@ -96,10 +98,6 @@ func completeAllProjectNames(cmd *cobra.Command, args []string, toComplete strin
 		return nil, cobra.ShellCompDirectiveNoFileComp
 	}
 
-	var names []string
-	for _, p := range projects {
-		names = append(names, p.Name)
-	}
-
+	names := fuzzyFilterProjects(projects, toComplete)
 	return names, cobra.ShellCompDirectiveNoFileComp
 }

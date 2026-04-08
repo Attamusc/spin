@@ -10,6 +10,15 @@ import (
 	"github.com/attamusc/spin/internal/discovery"
 )
 
+// fuzzyMatchSegment returns true if value contains pattern (case-insensitive).
+// Returns false for empty patterns to avoid matching everything.
+func fuzzyMatchSegment(value, pattern string) bool {
+	if pattern == "" {
+		return false
+	}
+	return strings.Contains(strings.ToLower(value), strings.ToLower(pattern))
+}
+
 // ResolvedProject holds the fully resolved project information.
 type ResolvedProject struct {
 	Host   string                // e.g., "github.com"
@@ -117,7 +126,35 @@ func resolveOwnerRepo(ownerRepo, projectsRoot string) (*ResolvedProject, error) 
 		}
 	}
 
-	return nil, fmt.Errorf("project %q not found. Run 'spin list' to see available projects", ownerRepo)
+	// Fuzzy fallback: scan all .spin.toml projects and match segments
+	parts := strings.SplitN(ownerRepo, "/", 2)
+	ownerPattern, repoPattern := parts[0], parts[1]
+
+	projects, err := discovery.Scan(projectsRoot)
+	if err != nil {
+		return nil, fmt.Errorf("could not scan projects: %w", err)
+	}
+
+	var matches []discovery.DiscoveredProject
+	for _, p := range projects {
+		if fuzzyMatchSegment(p.Owner, ownerPattern) && fuzzyMatchSegment(p.Repo, repoPattern) {
+			matches = append(matches, p)
+		}
+	}
+
+	switch len(matches) {
+	case 1:
+		return resolveFromProjectDir(matches[0].Dir, projectsRoot)
+	case 0:
+		return nil, fmt.Errorf("project %q not found. Run 'spin list' to see available projects", ownerRepo)
+	default:
+		var names []string
+		for _, m := range matches {
+			names = append(names, m.Name)
+		}
+		return nil, fmt.Errorf("ambiguous project pattern %q matches multiple projects:\n  %s\nPlease be more specific",
+			ownerRepo, strings.Join(names, "\n  "))
+	}
 }
 
 // resolveShortName resolves a short repo name by scanning all projects.
@@ -136,18 +173,26 @@ func resolveShortName(name, projectsRoot string) (*ResolvedProject, error) {
 
 	switch len(matches) {
 	case 0:
-		// No match — provide suggestions
-		var suggestions []string
+		// No exact match — try fuzzy (substring) match on repo name
+		var fuzzyMatches []discovery.DiscoveredProject
 		for _, p := range projects {
-			if strings.Contains(p.Repo, name) || strings.Contains(p.Name, name) {
-				suggestions = append(suggestions, p.Name)
+			if fuzzyMatchSegment(p.Repo, name) {
+				fuzzyMatches = append(fuzzyMatches, p)
 			}
 		}
-		if len(suggestions) > 0 {
-			return nil, fmt.Errorf("project %q not found. Did you mean one of these?\n  %s",
-				name, strings.Join(suggestions, "\n  "))
+		switch len(fuzzyMatches) {
+		case 1:
+			return resolveFromProjectDir(fuzzyMatches[0].Dir, projectsRoot)
+		case 0:
+			return nil, fmt.Errorf("project %q not found. Run 'spin list' to see available projects", name)
+		default:
+			var names []string
+			for _, m := range fuzzyMatches {
+				names = append(names, m.Name)
+			}
+			return nil, fmt.Errorf("ambiguous project name %q matches multiple projects:\n  %s\nPlease specify as owner/repo",
+				name, strings.Join(names, "\n  "))
 		}
-		return nil, fmt.Errorf("project %q not found. Run 'spin list' to see available projects", name)
 
 	case 1:
 		return resolveFromProjectDir(matches[0].Dir, projectsRoot)
@@ -303,7 +348,41 @@ func resolveOwnerRepoAny(ownerRepo, projectsRoot string) (*ResolvedDir, error) {
 		}
 	}
 
-	return nil, fmt.Errorf("project %q not found. Run 'spin list' to see available projects", ownerRepo)
+	// Fuzzy fallback: scan all project directories and match segments
+	parts := strings.SplitN(ownerRepo, "/", 2)
+	ownerPattern, repoPattern := parts[0], parts[1]
+
+	allProjects, err := discovery.ScanAll(projectsRoot)
+	if err != nil {
+		return nil, fmt.Errorf("could not scan projects: %w", err)
+	}
+
+	var matches []discovery.DiscoveredProject
+	for _, p := range allProjects {
+		if fuzzyMatchSegment(p.Owner, ownerPattern) && fuzzyMatchSegment(p.Repo, repoPattern) {
+			matches = append(matches, p)
+		}
+	}
+
+	switch len(matches) {
+	case 1:
+		return &ResolvedDir{
+			Host:  matches[0].Host,
+			Owner: matches[0].Owner,
+			Repo:  matches[0].Repo,
+			Name:  matches[0].Name,
+			Dir:   matches[0].Dir,
+		}, nil
+	case 0:
+		return nil, fmt.Errorf("project %q not found. Run 'spin list' to see available projects", ownerRepo)
+	default:
+		var names []string
+		for _, m := range matches {
+			names = append(names, m.Name)
+		}
+		return nil, fmt.Errorf("ambiguous project pattern %q matches multiple projects:\n  %s\nPlease be more specific",
+			ownerRepo, strings.Join(names, "\n  "))
+	}
 }
 
 // resolveShortNameAny resolves a short repo name by scanning all projects
@@ -324,19 +403,32 @@ func resolveShortNameAny(name, projectsRoot, defaultOwner string) (*ResolvedDir,
 
 	switch len(matches) {
 	case 0:
-		// No match — provide suggestions
-		var suggestions []string
-		lowerName := strings.ToLower(name)
+		// No exact match — try fuzzy (substring) match on repo name
+		var fuzzyMatches []discovery.DiscoveredProject
 		for _, p := range projects {
-			if strings.Contains(strings.ToLower(p.Repo), lowerName) || strings.Contains(strings.ToLower(p.Name), lowerName) {
-				suggestions = append(suggestions, p.Name)
+			if fuzzyMatchSegment(p.Repo, name) {
+				fuzzyMatches = append(fuzzyMatches, p)
 			}
 		}
-		if len(suggestions) > 0 {
-			return nil, fmt.Errorf("project %q not found. Did you mean one of these?\n  %s",
-				name, strings.Join(suggestions, "\n  "))
+		switch len(fuzzyMatches) {
+		case 1:
+			return &ResolvedDir{
+				Host:  fuzzyMatches[0].Host,
+				Owner: fuzzyMatches[0].Owner,
+				Repo:  fuzzyMatches[0].Repo,
+				Name:  fuzzyMatches[0].Name,
+				Dir:   fuzzyMatches[0].Dir,
+			}, nil
+		case 0:
+			return nil, fmt.Errorf("project %q not found. Run 'spin list' to see available projects", name)
+		default:
+			var names []string
+			for _, m := range fuzzyMatches {
+				names = append(names, m.Name)
+			}
+			return nil, fmt.Errorf("ambiguous project name %q matches multiple projects:\n  %s\nPlease specify as owner/repo",
+				name, strings.Join(names, "\n  "))
 		}
-		return nil, fmt.Errorf("project %q not found. Run 'spin list' to see available projects", name)
 
 	case 1:
 		return &ResolvedDir{

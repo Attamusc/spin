@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"bytes"
 	"fmt"
 	"os"
 
@@ -53,14 +52,6 @@ func runShellInit(cmd *cobra.Command, args []string) error {
 		}
 
 		fmt.Print(output)
-
-		// Append cobra's zsh completion (provides _spin function with full
-		// subcommand, flag, and argument completion)
-		var buf bytes.Buffer
-		if err := rootCmd.GenZshCompletion(&buf); err != nil {
-			return fmt.Errorf("failed to generate zsh completions: %w", err)
-		}
-		fmt.Print(buf.String())
 
 		return nil
 

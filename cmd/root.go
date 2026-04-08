@@ -3,6 +3,7 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"strings"
 	"text/tabwriter"
 
 	"github.com/attamusc/spin/internal/config"
@@ -79,6 +80,7 @@ func runRoot(cmd *cobra.Command, args []string) error {
 // completeProjectNames returns a cobra completion function that suggests
 // discovered project names (owner/repo format) for tab completion.
 // This uses ScanAll to include all projects, not just those with .spin.toml.
+// When toComplete is non-empty, results are fuzzy-filtered.
 func completeProjectNames(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 	// Only complete the first argument (project name)
 	if len(args) > 0 {
@@ -95,10 +97,46 @@ func completeProjectNames(cmd *cobra.Command, args []string, toComplete string) 
 		return nil, cobra.ShellCompDirectiveNoFileComp
 	}
 
-	var names []string
-	for _, p := range projects {
-		names = append(names, p.Name)
+	names := fuzzyFilterProjects(projects, toComplete)
+	return names, cobra.ShellCompDirectiveNoFileComp
+}
+
+// fuzzyFilterProjects filters a list of discovered projects using segment-wise
+// substring matching against toComplete. If toComplete is empty, returns all names.
+func fuzzyFilterProjects(projects []discovery.DiscoveredProject, toComplete string) []string {
+	if toComplete == "" {
+		var names []string
+		for _, p := range projects {
+			names = append(names, p.Name)
+		}
+		return names
 	}
 
-	return names, cobra.ShellCompDirectiveNoFileComp
+	lower := strings.ToLower(toComplete)
+
+	if strings.Contains(toComplete, "/") {
+		// owner/repo pattern — match each segment
+		parts := strings.SplitN(lower, "/", 2)
+		ownerPattern := parts[0]
+		repoPattern := parts[1]
+
+		var names []string
+		for _, p := range projects {
+			ownerMatch := ownerPattern == "" || strings.Contains(strings.ToLower(p.Owner), ownerPattern)
+			repoMatch := repoPattern == "" || strings.Contains(strings.ToLower(p.Repo), repoPattern)
+			if ownerMatch && repoMatch {
+				names = append(names, p.Name)
+			}
+		}
+		return names
+	}
+
+	// Short name — match against repo
+	var names []string
+	for _, p := range projects {
+		if strings.Contains(strings.ToLower(p.Repo), lower) {
+			names = append(names, p.Name)
+		}
+	}
+	return names
 }

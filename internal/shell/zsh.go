@@ -168,4 +168,50 @@ _spin_complete_projects() {
   projects=(${(f)"$(_spin_cached_projects)"})
   compadd -a projects
 }
+
+# ============================================================================
+# Fuzzy completion override for spin (wraps cobra-generated completion)
+# ============================================================================
+# Cobra's generated completion handles prefix matching well (progressive
+# completion, case sensitivity from user's zstyle, etc). We wrap it here:
+# try cobra first, and if it finds no matches for a project argument,
+# fall back to fuzzy completion via spin's __complete endpoint + compadd -U.
+
+_spin() {
+  # Try cobra's standard completion first — handles prefix matching,
+  # progressive completion (att<TAB> → Attamusc/ → keep typing), and
+  # respects the user's zstyle matcher configuration.
+  _spin_cobra && return 0
+
+  # Cobra found no prefix matches. For project-aware subcommands,
+  # fall back to fuzzy completion.
+  local subcmd="${words[2]}"
+  case "$subcmd" in
+    go|dev|up|down|status|logs|open|new|clone|db)
+      if (( CURRENT == 3 )); then
+        local cur="${words[CURRENT]}"
+        local -a completions
+        local out
+        out=$(command {{.SpinCmd}} __complete "${subcmd}" "${cur}" 2>/dev/null)
+
+        # Parse completions (skip the last line which is the directive ":N")
+        while IFS='' read -r line; do
+          [[ "${line}" == :* ]] && continue
+          [[ -n "${line}" ]] && completions+=("${line%%$'\t'*}")
+        done <<< "${out}"
+
+        if (( ${#completions} > 0 )); then
+          compadd -U -- "${completions[@]}"
+          return 0
+        fi
+      fi
+      ;;
+  esac
+  return 1
+}
+
+# Load cobra's generated completion under a different name so we can delegate
+eval "$(command {{.SpinCmd}} completion zsh 2>/dev/null | sed -e '/^#compdef/d' -e '/^compdef/d' -e 's/^_spin()/_spin_cobra()/' -e 's/"_spin"/"_spin_cobra"/g' -e 's/^    _spin$/    _spin_cobra/')"
+
+compdef _spin spin
 `

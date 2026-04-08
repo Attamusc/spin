@@ -222,13 +222,13 @@ func TestFromName_ShortName_NoMatch_WithSuggestions(t *testing.T) {
 	tmpDir := t.TempDir()
 	createProject(t, tmpDir, "github.com", "attamusc", "mindtrail")
 
-	_, err := FromName("mind", tmpDir)
-	if err == nil {
-		t.Fatal("expected error for no exact match, got nil")
+	// "mind" is a substring of "mindtrail" -- should auto-resolve to single fuzzy match
+	result, err := FromName("mind", tmpDir)
+	if err != nil {
+		t.Fatalf("expected fuzzy match to auto-resolve, got error: %v", err)
 	}
-	// "mind" is a substring of "mindtrail", so we should get a suggestion
-	if !strings.Contains(err.Error(), "mindtrail") || !strings.Contains(err.Error(), "Did you mean") {
-		t.Errorf("expected suggestion containing 'mindtrail', got: %v", err)
+	if result.Repo != "mindtrail" {
+		t.Errorf("expected repo 'mindtrail', got %q", result.Repo)
 	}
 }
 
@@ -393,12 +393,13 @@ func TestResolveAny_ShortName_NoMatch_WithSuggestions(t *testing.T) {
 	tmpDir := t.TempDir()
 	createDirOnly(t, tmpDir, "github.com", "attamusc", "mindtrail")
 
-	_, err := ResolveAny("mind", tmpDir, "")
-	if err == nil {
-		t.Fatal("expected error for no exact match, got nil")
+	// "mind" is a substring of "mindtrail" -- should auto-resolve to single fuzzy match
+	result, err := ResolveAny("mind", tmpDir, "")
+	if err != nil {
+		t.Fatalf("expected fuzzy match to auto-resolve, got error: %v", err)
 	}
-	if !strings.Contains(err.Error(), "mindtrail") || !strings.Contains(err.Error(), "Did you mean") {
-		t.Errorf("expected suggestion containing 'mindtrail', got: %v", err)
+	if result.Repo != "mindtrail" {
+		t.Errorf("expected repo 'mindtrail', got %q", result.Repo)
 	}
 }
 
@@ -422,6 +423,154 @@ func TestResolveAny_EmptyArg_ErrorsOutsideRoot(t *testing.T) {
 	_, err := ResolveAny("", tmpDir, "")
 	if err == nil {
 		t.Fatal("expected error when CWD is outside projects_root, got nil")
+	}
+}
+
+// --- Fuzzy matching tests for resolveOwnerRepoAny ---
+
+func TestResolveAny_OwnerRepo_FuzzyMatch(t *testing.T) {
+	tmpDir := t.TempDir()
+	expectedDir := createDirOnly(t, tmpDir, "github.com", "attamusc", "spin")
+
+	rd, err := ResolveAny("att/sp", tmpDir, "")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if rd.Owner != "attamusc" || rd.Repo != "spin" {
+		t.Errorf("expected attamusc/spin, got %s/%s", rd.Owner, rd.Repo)
+	}
+	if rd.Dir != expectedDir {
+		t.Errorf("expected Dir=%q, got %q", expectedDir, rd.Dir)
+	}
+}
+
+func TestResolveAny_OwnerRepo_FuzzyAmbiguous(t *testing.T) {
+	tmpDir := t.TempDir()
+	createDirOnly(t, tmpDir, "github.com", "attamusc", "spin")
+	createDirOnly(t, tmpDir, "github.com", "attamusc", "splinter")
+
+	_, err := ResolveAny("att/sp", tmpDir, "")
+	if err == nil {
+		t.Fatal("expected error for ambiguous fuzzy match, got nil")
+	}
+	if !strings.Contains(err.Error(), "ambiguous") {
+		t.Errorf("expected 'ambiguous' in error, got: %v", err)
+	}
+}
+
+func TestResolveAny_OwnerRepo_FuzzyNoMatch(t *testing.T) {
+	tmpDir := t.TempDir()
+	createDirOnly(t, tmpDir, "github.com", "attamusc", "spin")
+
+	_, err := ResolveAny("zzz/yyy", tmpDir, "")
+	if err == nil {
+		t.Fatal("expected error for no fuzzy match, got nil")
+	}
+	if !strings.Contains(err.Error(), "not found") {
+		t.Errorf("expected 'not found' in error, got: %v", err)
+	}
+}
+
+func TestResolveAny_OwnerRepo_ExactStillWins(t *testing.T) {
+	tmpDir := t.TempDir()
+	expectedDir := createDirOnly(t, tmpDir, "github.com", "attamusc", "spin")
+
+	rd, err := ResolveAny("attamusc/spin", tmpDir, "")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if rd.Dir != expectedDir {
+		t.Errorf("expected Dir=%q, got %q", expectedDir, rd.Dir)
+	}
+}
+
+func TestResolveAny_OwnerRepo_FuzzyCaseInsensitive(t *testing.T) {
+	tmpDir := t.TempDir()
+	createDirOnly(t, tmpDir, "github.com", "attamusc", "spin")
+
+	rd, err := ResolveAny("ATT/SP", tmpDir, "")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if rd.Owner != "attamusc" || rd.Repo != "spin" {
+		t.Errorf("expected attamusc/spin, got %s/%s", rd.Owner, rd.Repo)
+	}
+}
+
+// --- Fuzzy matching tests for resolveShortNameAny ---
+
+func TestResolveAny_ShortName_FuzzyMatch(t *testing.T) {
+	tmpDir := t.TempDir()
+	expectedDir := createDirOnly(t, tmpDir, "github.com", "attamusc", "spin")
+
+	rd, err := ResolveAny("sp", tmpDir, "")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if rd.Repo != "spin" {
+		t.Errorf("expected Repo=spin, got %q", rd.Repo)
+	}
+	if rd.Dir != expectedDir {
+		t.Errorf("expected Dir=%q, got %q", expectedDir, rd.Dir)
+	}
+}
+
+func TestResolveAny_ShortName_FuzzyAmbiguous(t *testing.T) {
+	tmpDir := t.TempDir()
+	createDirOnly(t, tmpDir, "github.com", "attamusc", "spin")
+	createDirOnly(t, tmpDir, "github.com", "attamusc", "splinter")
+
+	_, err := ResolveAny("sp", tmpDir, "")
+	if err == nil {
+		t.Fatal("expected error for ambiguous fuzzy match, got nil")
+	}
+	if !strings.Contains(err.Error(), "ambiguous") {
+		t.Errorf("expected 'ambiguous' in error, got: %v", err)
+	}
+}
+
+// --- Fuzzy matching tests for config-required variants (FromName) ---
+
+func TestFromName_OwnerRepo_FuzzyMatch(t *testing.T) {
+	tmpDir := t.TempDir()
+	createProject(t, tmpDir, "github.com", "attamusc", "spin")
+
+	rp, err := FromName("att/sp", tmpDir)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if rp.Owner != "attamusc" || rp.Repo != "spin" {
+		t.Errorf("expected attamusc/spin, got %s/%s", rp.Owner, rp.Repo)
+	}
+}
+
+func TestFromName_ShortName_FuzzyMatch(t *testing.T) {
+	tmpDir := t.TempDir()
+	createProject(t, tmpDir, "github.com", "attamusc", "spin")
+
+	rp, err := FromName("sp", tmpDir)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if rp.Repo != "spin" {
+		t.Errorf("expected Repo=spin, got %q", rp.Repo)
+	}
+}
+
+func TestResolveAny_OwnerRepo_FuzzyEmptySegment(t *testing.T) {
+	tmpDir := t.TempDir()
+	createDirOnly(t, tmpDir, "github.com", "attamusc", "spin")
+
+	// "att/" — empty repo segment should not fuzzy-match
+	_, err := ResolveAny("att/", tmpDir, "")
+	if err == nil {
+		t.Fatal("expected error for empty repo segment, got nil")
+	}
+
+	// "/spin" — empty owner segment should not fuzzy-match
+	_, err = ResolveAny("/spin", tmpDir, "")
+	if err == nil {
+		t.Fatal("expected error for empty owner segment, got nil")
 	}
 }
 
