@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"runtime"
 
 	"github.com/attamusc/spin/internal/config"
 	"github.com/attamusc/spin/internal/process"
@@ -26,6 +27,32 @@ If no project argument is given, the project is resolved from the current direct
 
 func init() {
 	rootCmd.AddCommand(openCmd)
+}
+
+func openerForOS(goos string) (string, error) {
+	switch goos {
+	case "darwin":
+		return "open", nil
+	case "linux":
+		return "xdg-open", nil
+	default:
+		return "", fmt.Errorf("unsupported operating system %q", goos)
+	}
+}
+
+func runBrowserCommand(name string, args ...string) error {
+	return exec.Command(name, args...).Run()
+}
+
+func openURL(goos, url string, run func(string, ...string) error) error {
+	opener, err := openerForOS(goos)
+	if err != nil {
+		return err
+	}
+	if err := run(opener, url); err != nil {
+		return fmt.Errorf("failed to open browser with %s: %w", opener, err)
+	}
+	return nil
 }
 
 func runOpen(cmd *cobra.Command, args []string) error {
@@ -64,11 +91,5 @@ func runOpen(cmd *cobra.Command, args []string) error {
 	url := fmt.Sprintf("http://localhost:%d", port)
 	color.New(color.FgGreen).Fprintf(os.Stderr, "Opening %s (%s)...\n", cyan(project.Name), url)
 
-	// Use macOS open command
-	openCmd := exec.Command("open", url)
-	if err := openCmd.Run(); err != nil {
-		return fmt.Errorf("failed to open browser: %w", err)
-	}
-
-	return nil
+	return openURL(runtime.GOOS, url, runBrowserCommand)
 }

@@ -1,6 +1,10 @@
 package shell
 
 import (
+	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -158,4 +162,142 @@ func TestGenerateZsh_CacheInvalidation(t *testing.T) {
 	if !strings.Contains(output, `rm -f "$cache_file"`) {
 		t.Error("expected cache invalidation (rm -f) in shell wrapper")
 	}
+}
+
+func TestGenerateZsh_CacheAgeSupportsBSDAndGNUStat(t *testing.T) {
+	output, err := GenerateZsh(ZshConfig{})
+	if err != nil {
+		t.Fatalf("GenerateZsh() error: %v", err)
+	}
+
+	for _, tc := range []struct {
+		name       string
+		statScript string
+	}{
+		{
+			name: "BSD stat",
+			statScript: `#!/bin/sh
+if [ "$1" = "-f" ] && [ "$2" = "%m" ]; then
+  printf '1234\n'
+  exit 0
+fi
+printf 'unsupported stat form\n' >&2
+exit 1
+`,
+		},
+		{
+			name: "GNU stat",
+			statScript: `#!/bin/sh
+if [ "$1" = "-c" ] && [ "$2" = "%Y" ]; then
+  printf '1234\n'
+  exit 0
+fi
+printf 'unsupported stat form\n' >&2
+exit 1
+`,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := runCacheAge(t, output, tc.statScript, true)
+			if got != "766\n" {
+				t.Fatalf("_spin_cache_age output = %q, want one numeric value %q", got, "766\n")
+			}
+		})
+	}
+}
+
+func TestGenerateZsh_CacheAgeWithoutCachePreservesSentinel(t *testing.T) {
+	output, err := GenerateZsh(ZshConfig{})
+	if err != nil {
+		t.Fatalf("GenerateZsh() error: %v", err)
+	}
+
+	got := runCacheAge(t, output, "#!/bin/sh\nexit 1\n", false)
+	if got != "999999\n" {
+		t.Fatalf("_spin_cache_age output = %q, want %q", got, "999999\n")
+	}
+}
+
+func TestGenerateZsh_CacheAgeIsNumericWhenStatFails(t *testing.T) {
+	output, err := GenerateZsh(ZshConfig{})
+	if err != nil {
+		t.Fatalf("GenerateZsh() error: %v", err)
+	}
+
+	got := runCacheAge(t, output, "#!/bin/sh\nprintf 'stat failed\\n' >&2\nexit 1\n", true)
+	if got != "2000\n" {
+		t.Fatalf("_spin_cache_age output = %q, want one numeric value %q", got, "2000\n")
+	}
+}
+
+func TestGenerateZsh_Syntax(t *testing.T) {
+	zshPath, err := exec.LookPath("zsh")
+	if err != nil {
+		t.Skip("zsh not found in PATH")
+	}
+
+	output, err := GenerateZsh(ZshConfig{})
+	if err != nil {
+		t.Fatalf("GenerateZsh() error: %v", err)
+	}
+
+	scriptPath := filepath.Join(t.TempDir(), "spin.zsh")
+	if err := os.WriteFile(scriptPath, []byte(output), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := exec.Command(zshPath, "-n", scriptPath)
+	if syntaxOutput, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("zsh -n failed: %v\n%s", err, syntaxOutput)
+	}
+}
+
+func runCacheAge(t *testing.T, generated, statScript string, cacheExists bool) string {
+	t.Helper()
+
+	zshPath, err := exec.LookPath("zsh")
+	if err != nil {
+		t.Skip("zsh not found in PATH")
+	}
+
+	start := strings.Index(generated, "_spin_cache_file()")
+	end := strings.Index(generated, "_spin_refresh_cache()")
+	if start == -1 || end == -1 || end <= start {
+		t.Fatal("generated shell does not contain the expected cache functions")
+	}
+
+	cacheRoot := t.TempDir()
+	if cacheExists {
+		cacheDir := filepath.Join(cacheRoot, "spin")
+		if err := os.MkdirAll(cacheDir, 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(cacheDir, "projects.cache"), nil, 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	binDir := t.TempDir()
+	for name, contents := range map[string]string{
+		"stat": statScript,
+		"date": "#!/bin/sh\nprintf '2000\\n'\n",
+	} {
+		path := filepath.Join(binDir, name)
+		if err := os.WriteFile(path, []byte(contents), 0755); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	script := fmt.Sprintf("%s\n_spin_cache_age\n", generated[start:end])
+	cmd := exec.Command(zshPath, "-f", "-c", script)
+	cmd.Env = []string{
+		"HOME=" + cacheRoot,
+		"PATH=" + binDir,
+		"XDG_CACHE_HOME=" + cacheRoot,
+	}
+	combined, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("running _spin_cache_age failed: %v\n%s", err, combined)
+	}
+	return string(combined)
 }

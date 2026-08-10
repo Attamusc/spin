@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-`spin` is a Go CLI tool for managing local development projects. It handles project navigation, git cloning, project creation from templates, bulk repo updates, process management (foreground dev mode / background live mode with separate SQLite databases), and shell integration with fzf-powered project picking. It targets macOS.
+`spin` is a Go CLI tool for managing local development projects. It handles project navigation, git cloning, project creation from templates, bulk repo updates, process management (foreground dev mode / background live mode with separate SQLite databases), and shell integration with fzf-powered project picking. It supports macOS (arm64 and amd64) and Fedora 44 (x86_64).
 
 ## Project Structure
 

@@ -1,6 +1,6 @@
 # spin
 
-A local project runner and manager for macOS. Navigate between projects, clone repos, scaffold from templates, and run dev/live instances with isolated SQLite databases — all from one tool.
+A local project runner and manager for macOS (arm64 and amd64) and Fedora 44 (x86_64). Navigate between projects, clone repos, scaffold from templates, and run dev/live instances with isolated SQLite databases — all from one tool.
 
 ## Why
 

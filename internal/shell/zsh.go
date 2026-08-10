@@ -56,8 +56,17 @@ _spin_cache_file() {
 _spin_cache_age() {
   local cache_file="$(_spin_cache_file)"
   [[ -f "$cache_file" ]] || { echo 999999; return; }
-  local mtime=$(stat -f %m "$cache_file" 2>/dev/null || echo 0)
+  local mtime
+  if mtime=$(command stat -c %Y "$cache_file" 2>/dev/null); then
+    :
+  elif mtime=$(command stat -f %m "$cache_file" 2>/dev/null); then
+    :
+  else
+    mtime=0
+  fi
+  [[ "$mtime" == <-> ]] || mtime=0
   local now=$(date +%s)
+  [[ "$now" == <-> ]] || now=0
   echo $((now - mtime))
 }
 
