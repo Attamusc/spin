@@ -89,7 +89,7 @@ make fmt            # go fmt ./...
 - Background processes use `Setsid: true` for session detachment — do NOT use `fork()` from Go.
 - Stopping background processes sends signals to the process group (`-pid`) since `sh -c` may spawn children.
 - Background processes use a goroutine with `cmd.Wait()` to reap children — do NOT use `cmd.Process.Release()` (causes zombies in tests).
-- PID files are validated with `syscall.Kill(pid, 0)` and stale ones are cleaned up automatically.
+- Lifecycle commands validate PID files with `syscall.Kill(pid, 0)` and explicitly clean stale files. Status and the dashboard never clean files: their shared read-only collector retains stale/unknown/malformed records and reports uncertainty. `spin status --format json` follows `docs/status-contract.md`; PID existence is not identity/readiness, and uptime is estimated PID-file age.
 - The `{profile_db_path}` template variable in `.spin.toml` env values is the only supported template.
 - Projects are discovered by scanning `projects_root` at depth 3 (`host/owner/repo`). `ScanAll` finds all directories; `Scan` filters to `.spin.toml` only.
 - Shell integration uses `eval "$(spin shell-init zsh)"` pattern. The shell wrapper intercepts `go`, `new`, `clone` commands to `cd` into the path printed on stdout.

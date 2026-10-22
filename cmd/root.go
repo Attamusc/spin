@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"strings"
-	"text/tabwriter"
 
 	"github.com/attamusc/spin/internal/config"
 	"github.com/attamusc/spin/internal/discovery"
@@ -30,32 +29,19 @@ func Execute() error {
 
 func runRoot(cmd *cobra.Command, args []string) error {
 	cyan := color.New(color.FgCyan).SprintFunc()
-	green := color.New(color.FgGreen).SprintFunc()
 	bold := color.New(color.Bold).SprintFunc()
 
-	// Show running instances
-	globalCfg, err := config.LoadGlobal()
-	if err == nil {
-		entries := scanRunningInstances(globalCfg)
-		if len(entries) > 0 {
-			fmt.Fprintf(os.Stderr, "%s\n\n", bold("Running instances:"))
-			w := tabwriter.NewWriter(os.Stderr, 0, 0, 3, ' ', 0)
-			fmt.Fprintln(w, "PROJECT\tMODE\tPORT\tPID\tUPTIME")
-			for _, e := range entries {
-				portStr := "-"
-				if e.port > 0 {
-					portStr = fmt.Sprintf("%d", e.port)
-				}
-				fmt.Fprintf(w, "%s\t%s\t%s\t%d\t%s\n",
-					cyan(fmt.Sprintf("%s/%s", e.owner, e.repo)), green("live"), portStr, e.pid, formatDuration(e.uptime))
-			}
-			w.Flush()
-			fmt.Fprintln(os.Stderr)
-		} else {
-			fmt.Fprintln(os.Stderr, "No live instances running.")
-			fmt.Fprintln(os.Stderr)
-		}
+	// Dashboard and status share the same non-mutating observation.
+	result := observeStatus()
+	cmd.SilenceErrors = true
+	cmd.SilenceUsage = true
+	emitStatusDiagnostics(os.Stderr, result)
+	fmt.Fprintf(os.Stderr, "%s\n\n", bold("Running instances:"))
+	renderErr := renderStatus(os.Stderr, result, true)
+	if !result.Complete {
+		fmt.Fprintln(os.Stderr, "Status observation incomplete.")
 	}
+	fmt.Fprintln(os.Stderr)
 
 	// Show brief help
 	fmt.Fprintf(os.Stderr, "%s\n\n", bold("Common commands:"))
@@ -74,6 +60,12 @@ func runRoot(cmd *cobra.Command, args []string) error {
 	fmt.Fprintln(os.Stderr)
 	fmt.Fprintf(os.Stderr, "Run %s for full usage.\n", cyan("spin help"))
 
+	if renderErr != nil {
+		return renderErr
+	}
+	if !result.Complete {
+		return errStatusIncomplete
+	}
 	return nil
 }
 

@@ -92,7 +92,7 @@ This provides:
 | `spin dev [project]` | Run in dev mode (foregrounded) |
 | `spin up [project]` | Start live mode (backgrounded) |
 | `spin down [project]` | Stop a live instance |
-| `spin status` | Show all running live instances |
+| `spin status [--format plain\|json]` | Observe recorded live-mode PID files without changing them |
 | `spin logs [project]` | Tail the live instance log file |
 | `spin init` | Generate a `.spin.toml` in the current directory |
 | `spin open [project]` | Open the project in the browser |
@@ -152,6 +152,13 @@ env = { DATABASE_URL = "file:{profile_db_path}", PORT = "3000" }
 
 - `{profile_db_path}` resolves to the full path of the profile's SQLite database
 - `port` is used for status display, conflict detection, and `spin open` — not enforced
+
+`spin status --format json` emits a schema-versioned observation with explicit
+nullable metadata and diagnostics. Exit 0 means complete (including empty or
+stale results); exit 1 means incomplete. Plain status and the dashboard are also
+read-only: stale PID files are retained. PID existence does not verify process
+identity, readiness, or listening ports; uptime is estimated from PID-file mtime.
+See [the status contract](docs/status-contract.md) for the JSON schema and states.
 - `pre_hook` (optional) runs a shell command before the main command starts
 - Both profiles run the same dev command — only the environment differs
 

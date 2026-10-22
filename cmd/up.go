@@ -110,14 +110,21 @@ func checkPortConflicts(globalCfg *config.GlobalConfig, project *resolve.Resolve
 	}
 
 	// Scan for running instances
-	entries := scanRunningInstances(globalCfg)
-	for _, entry := range entries {
-		if entry.owner == project.Owner && entry.repo == project.Repo {
+	result := newStatusObserver().collect(globalCfg)
+	emitStatusDiagnostics(os.Stderr, result)
+	if !result.Complete {
+		fmt.Fprintln(os.Stderr, "Warning: port conflict observation incomplete (advisory only).")
+	}
+	for _, entry := range result.Instances {
+		if entry.State != "live" || entry.Port == nil || entry.PID == nil {
+			continue
+		}
+		if entry.Owner == project.Owner && entry.Repo == project.Repo {
 			continue // Skip self
 		}
-		if entry.port == project.Config.Live.Port {
+		if *entry.Port == project.Config.Live.Port {
 			color.New(color.FgYellow).Fprintf(os.Stderr, "Warning: port %d is also configured for %s/%s (PID %d)\n",
-				project.Config.Live.Port, entry.owner, entry.repo, entry.pid)
+				project.Config.Live.Port, entry.Owner, entry.Repo, *entry.PID)
 		}
 	}
 }

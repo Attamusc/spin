@@ -1,168 +1,102 @@
 package cmd
 
 import (
+	"encoding/json"
+	"errors"
 	"fmt"
-	"os"
-	"path/filepath"
+	"io"
 	"text/tabwriter"
 	"time"
 
-	"github.com/attamusc/spin/internal/config"
-	"github.com/attamusc/spin/internal/process"
-	"github.com/fatih/color"
 	"github.com/spf13/cobra"
 )
 
 var statusCmd = &cobra.Command{
-	Use:   "status",
-	Short: "Show all running live instances",
-	RunE:  runStatus,
+	Use: "status", Short: "Observe recorded live-mode instances (read-only)", Args: cobra.NoArgs, RunE: runStatus,
 }
 
 func init() {
+	statusCmd.Flags().String("format", "plain", "Output format: plain or json")
 	rootCmd.AddCommand(statusCmd)
 }
 
-type runningInstance struct {
-	owner  string
-	repo   string
-	pid    int
-	port   int
-	uptime time.Duration
-}
+var errStatusIncomplete = errors.New("status observation incomplete")
 
-func runStatus(cmd *cobra.Command, args []string) error {
-	globalCfg, err := config.LoadGlobal()
-	if err != nil {
-		return fmt.Errorf("failed to load global config: %w", err)
-	}
-
-	entries := scanRunningInstances(globalCfg)
-
-	if len(entries) == 0 {
-		fmt.Println("No live instances running.")
-		return nil
-	}
-
-	w := tabwriter.NewWriter(os.Stdout, 0, 0, 3, ' ', 0)
-	fmt.Fprintln(w, "PROJECT\tMODE\tPORT\tPID\tUPTIME")
-
-	cyan := color.New(color.FgCyan).SprintFunc()
-	green := color.New(color.FgGreen).SprintFunc()
-
-	for _, e := range entries {
-		portStr := "-"
-		if e.port > 0 {
-			portStr = fmt.Sprintf("%d", e.port)
+func emitStatusDiagnostics(w io.Writer, r statusResult) {
+	for _, d := range r.Diagnostics {
+		if d.Path == nil {
+			fmt.Fprintf(w, "%s: %s\n", d.Code, d.Message)
+		} else {
+			fmt.Fprintf(w, "%s: %q: %s\n", d.Code, *d.Path, d.Message)
 		}
-		fmt.Fprintf(w, "%s\t%s\t%s\t%d\t%s\n",
-			cyan(fmt.Sprintf("%s/%s", e.owner, e.repo)), green("live"), portStr, e.pid, formatDuration(e.uptime))
 	}
-
-	w.Flush()
+}
+func runStatus(cmd *cobra.Command, args []string) error {
+	format, _ := cmd.Flags().GetString("format")
+	if format != "plain" && format != "json" {
+		return fmt.Errorf("invalid status format %q (expected plain or json)", format)
+	}
+	r := observeStatus()
+	// Diagnostics are already emitted once; Cobra must not append usage/errors.
+	cmd.SilenceErrors = true
+	cmd.SilenceUsage = true
+	emitStatusDiagnostics(cmd.ErrOrStderr(), r)
+	var err error
+	if format == "json" {
+		err = json.NewEncoder(cmd.OutOrStdout()).Encode(r)
+	} else {
+		err = renderStatus(cmd.OutOrStdout(), r, false)
+	}
+	if err != nil {
+		fmt.Fprintf(cmd.ErrOrStderr(), "Could not write status output: %v\n", err)
+		return err
+	}
+	if !r.Complete {
+		return errStatusIncomplete
+	}
 	return nil
 }
-
-// scanRunningInstances scans the data root for live.pid files and returns
-// information about running instances.
-func scanRunningInstances(globalCfg *config.GlobalConfig) []runningInstance {
-	var entries []runningInstance
-
-	// Walk {data_root}/*/*/live.pid
-	dataRoot := globalCfg.DataRoot
-	owners, err := os.ReadDir(dataRoot)
-	if err != nil {
-		return entries
+func number[T ~int | ~int64](v *T) string {
+	if v == nil {
+		return "-"
 	}
-
-	for _, ownerEntry := range owners {
-		if !ownerEntry.IsDir() {
-			continue
-		}
-		ownerPath := filepath.Join(dataRoot, ownerEntry.Name())
-		repos, err := os.ReadDir(ownerPath)
-		if err != nil {
-			continue
-		}
-
-		for _, repoEntry := range repos {
-			if !repoEntry.IsDir() {
-				continue
-			}
-			pidPath := filepath.Join(ownerPath, repoEntry.Name(), "live.pid")
-
-			pid, err := process.ReadPID(pidPath)
-			if err != nil {
-				continue
-			}
-
-			if !process.IsProcessAlive(pid) {
-				// Clean stale PID file
-				_ = os.Remove(pidPath)
-				continue
-			}
-
-			// Calculate uptime from PID file mtime
-			info, err := os.Stat(pidPath)
-			var uptime time.Duration
-			if err == nil {
-				uptime = time.Since(info.ModTime())
-			}
-
-			// Try to load project config for port
-			port := 0
-			projectDir := findProjectDir(globalCfg.ProjectsRoot, ownerEntry.Name(), repoEntry.Name())
-			if projectDir != "" {
-				cfg, err := config.LoadProject(projectDir)
-				if err == nil {
-					port = cfg.Live.Port
-				}
-			}
-
-			entries = append(entries, runningInstance{
-				owner:  ownerEntry.Name(),
-				repo:   repoEntry.Name(),
-				pid:    pid,
-				port:   port,
-				uptime: uptime,
-			})
-		}
-	}
-
-	return entries
+	return fmt.Sprint(*v)
 }
-
-// findProjectDir tries to find the project directory for a given owner/repo
-// by scanning {projects_root}/*/owner/repo for .spin.toml
-func findProjectDir(projectsRoot, owner, repo string) string {
-	hosts, err := os.ReadDir(projectsRoot)
-	if err != nil {
-		return ""
-	}
-
-	for _, host := range hosts {
-		if !host.IsDir() || host.Name()[0] == '.' {
-			continue
-		}
-		dir := filepath.Join(projectsRoot, host.Name(), owner, repo)
-		if _, err := os.Stat(filepath.Join(dir, ".spin.toml")); err == nil {
-			return dir
+func renderStatus(out io.Writer, r statusResult, liveOnly bool) error {
+	rows := []statusInstance{}
+	for _, row := range r.Instances {
+		if !liveOnly || row.State == "live" {
+			rows = append(rows, row)
 		}
 	}
-	return ""
+	if len(rows) == 0 {
+		if r.Complete {
+			_, err := fmt.Fprintln(out, "No live instances running.")
+			return err
+		}
+		_, err := fmt.Fprintln(out, "Status observation incomplete.")
+		return err
+	}
+	w := tabwriter.NewWriter(out, 0, 0, 3, ' ', 0)
+	fmt.Fprintln(w, "PROJECT\tMODE\tSTATE\tPORT\tPID\tUPTIME (EST.)")
+	for _, row := range rows {
+		uptime := "-"
+		if row.UptimeSeconds != nil {
+			uptime = formatDuration(time.Duration(*row.UptimeSeconds) * time.Second)
+		}
+		fmt.Fprintf(w, "%s/%s\t%s\t%s\t%s\t%s\t%s\n", row.Owner, row.Repo, row.Mode, row.State, number(row.Port), number(row.PID), uptime)
+	}
+	return w.Flush()
 }
 
 // formatDuration formats a duration as a human-readable string (e.g., "2h13m")
 func formatDuration(d time.Duration) string {
 	d = d.Round(time.Minute)
-
 	if d < time.Minute {
 		return "<1m"
 	}
-
 	hours := int(d.Hours())
 	minutes := int(d.Minutes()) % 60
-
 	if hours > 0 {
 		return fmt.Sprintf("%dh%dm", hours, minutes)
 	}
