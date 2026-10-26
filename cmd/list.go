@@ -54,6 +54,14 @@ func runList(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to scan projects: %w", err)
 	}
 
+	// Plain format — one name per line, for scripting and fzf
+	if format == "plain" {
+		for _, p := range projects {
+			fmt.Println(p.Name)
+		}
+		return nil
+	}
+
 	if len(projects) == 0 {
 		if configuredOnly {
 			fmt.Println("No configured projects found.")
@@ -62,14 +70,6 @@ func runList(cmd *cobra.Command, args []string) error {
 		} else {
 			fmt.Println("No projects found.")
 			fmt.Printf("Clone a repo with 'spin clone <repo>' or create one with 'spin new <name>'.\n")
-		}
-		return nil
-	}
-
-	// Plain format — one name per line, for scripting and fzf
-	if format == "plain" {
-		for _, p := range projects {
-			fmt.Println(p.Name)
 		}
 		return nil
 	}
