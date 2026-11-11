@@ -1,0 +1,310 @@
+{
+  "Revision": "d77cc8fd",
+  "Commands": [
+    {
+      "Path": "spin",
+      "Use": "spin",
+      "Aliases": [],
+      "Flags": [
+        {
+          "Name": "help",
+          "Shorthand": "h",
+          "Type": "bool",
+          "Default": "false"
+        }
+      ]
+    },
+    {
+      "Path": "spin clone",
+      "Use": "clone \u003crepo\u003e",
+      "Aliases": [],
+      "Flags": [
+        {
+          "Name": "help",
+          "Shorthand": "h",
+          "Type": "bool",
+          "Default": "false"
+        },
+        {
+          "Name": "host",
+          "Shorthand": "",
+          "Type": "string",
+          "Default": ""
+        }
+      ]
+    },
+    {
+      "Path": "spin completion",
+      "Use": "completion [bash|zsh|fish|powershell]",
+      "Aliases": [],
+      "Flags": [
+        {
+          "Name": "help",
+          "Shorthand": "h",
+          "Type": "bool",
+          "Default": "false"
+        }
+      ]
+    },
+    {
+      "Path": "spin db",
+      "Use": "db",
+      "Aliases": [],
+      "Flags": [
+        {
+          "Name": "help",
+          "Shorthand": "h",
+          "Type": "bool",
+          "Default": "false"
+        }
+      ]
+    },
+    {
+      "Path": "spin db copy",
+      "Use": "copy [source-profile] [target-profile]",
+      "Aliases": [],
+      "Flags": [
+        {
+          "Name": "help",
+          "Shorthand": "h",
+          "Type": "bool",
+          "Default": "false"
+        }
+      ]
+    },
+    {
+      "Path": "spin db reset",
+      "Use": "reset [profile]",
+      "Aliases": [],
+      "Flags": [
+        {
+          "Name": "help",
+          "Shorthand": "h",
+          "Type": "bool",
+          "Default": "false"
+        }
+      ]
+    },
+    {
+      "Path": "spin db restore",
+      "Use": "restore [profile] [name]",
+      "Aliases": [],
+      "Flags": [
+        {
+          "Name": "help",
+          "Shorthand": "h",
+          "Type": "bool",
+          "Default": "false"
+        }
+      ]
+    },
+    {
+      "Path": "spin db snapshot",
+      "Use": "snapshot [profile] [name]",
+      "Aliases": [],
+      "Flags": [
+        {
+          "Name": "help",
+          "Shorthand": "h",
+          "Type": "bool",
+          "Default": "false"
+        }
+      ]
+    },
+    {
+      "Path": "spin dev",
+      "Use": "dev [project]",
+      "Aliases": [],
+      "Flags": [
+        {
+          "Name": "help",
+          "Shorthand": "h",
+          "Type": "bool",
+          "Default": "false"
+        }
+      ]
+    },
+    {
+      "Path": "spin down",
+      "Use": "down [project]",
+      "Aliases": [],
+      "Flags": [
+        {
+          "Name": "help",
+          "Shorthand": "h",
+          "Type": "bool",
+          "Default": "false"
+        }
+      ]
+    },
+    {
+      "Path": "spin go",
+      "Use": "go [project]",
+      "Aliases": [],
+      "Flags": [
+        {
+          "Name": "help",
+          "Shorthand": "h",
+          "Type": "bool",
+          "Default": "false"
+        }
+      ]
+    },
+    {
+      "Path": "spin help",
+      "Use": "help [command]",
+      "Aliases": [],
+      "Flags": [
+        {
+          "Name": "help",
+          "Shorthand": "h",
+          "Type": "bool",
+          "Default": "false"
+        }
+      ]
+    },
+    {
+      "Path": "spin init",
+      "Use": "init",
+      "Aliases": [],
+      "Flags": [
+        {
+          "Name": "help",
+          "Shorthand": "h",
+          "Type": "bool",
+          "Default": "false"
+        }
+      ]
+    },
+    {
+      "Path": "spin list",
+      "Use": "list",
+      "Aliases": [
+        "ls"
+      ],
+      "Flags": [
+        {
+          "Name": "configured",
+          "Shorthand": "c",
+          "Type": "bool",
+          "Default": "false"
+        },
+        {
+          "Name": "format",
+          "Shorthand": "",
+          "Type": "string",
+          "Default": ""
+        },
+        {
+          "Name": "help",
+          "Shorthand": "h",
+          "Type": "bool",
+          "Default": "false"
+        }
+      ]
+    },
+    {
+      "Path": "spin logs",
+      "Use": "logs [project]",
+      "Aliases": [],
+      "Flags": [
+        {
+          "Name": "help",
+          "Shorthand": "h",
+          "Type": "bool",
+          "Default": "false"
+        }
+      ]
+    },
+    {
+      "Path": "spin new",
+      "Use": "new \u003cname\u003e",
+      "Aliases": [],
+      "Flags": [
+        {
+          "Name": "help",
+          "Shorthand": "h",
+          "Type": "bool",
+          "Default": "false"
+        },
+        {
+          "Name": "template",
+          "Shorthand": "t",
+          "Type": "string",
+          "Default": ""
+        }
+      ]
+    },
+    {
+      "Path": "spin open",
+      "Use": "open [project]",
+      "Aliases": [],
+      "Flags": [
+        {
+          "Name": "help",
+          "Shorthand": "h",
+          "Type": "bool",
+          "Default": "false"
+        }
+      ]
+    },
+    {
+      "Path": "spin shell-init",
+      "Use": "shell-init \u003cshell\u003e",
+      "Aliases": [],
+      "Flags": [
+        {
+          "Name": "help",
+          "Shorthand": "h",
+          "Type": "bool",
+          "Default": "false"
+        }
+      ]
+    },
+    {
+      "Path": "spin status",
+      "Use": "status",
+      "Aliases": [],
+      "Flags": [
+        {
+          "Name": "format",
+          "Shorthand": "",
+          "Type": "string",
+          "Default": "plain"
+        },
+        {
+          "Name": "help",
+          "Shorthand": "h",
+          "Type": "bool",
+          "Default": "false"
+        }
+      ]
+    },
+    {
+      "Path": "spin up",
+      "Use": "up [project]",
+      "Aliases": [],
+      "Flags": [
+        {
+          "Name": "help",
+          "Shorthand": "h",
+          "Type": "bool",
+          "Default": "false"
+        }
+      ]
+    },
+    {
+      "Path": "spin update",
+      "Use": "update [project]",
+      "Aliases": [],
+      "Flags": [
+        {
+          "Name": "help",
+          "Shorthand": "h",
+          "Type": "bool",
+          "Default": "false"
+        }
+      ]
+    }
+  ]
+}

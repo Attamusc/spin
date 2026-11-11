@@ -1,9 +1,12 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
 	"os"
+	"os/signal"
 	"sync"
+	"syscall"
 
 	"github.com/attamusc/spin/internal/config"
 	"github.com/attamusc/spin/internal/discovery"
@@ -24,7 +27,7 @@ If no argument is given, fetches all projects in parallel.
 Uses jj git fetch (preferred) or git fetch depending on the repo type.
 Non-repo directories are skipped.`,
 	Args:              cobra.MaximumNArgs(1),
-	ValidArgsFunction: completeAllProjectNames,
+	ValidArgsFunction: completeProjectNames,
 	RunE:              runUpdate,
 }
 
@@ -39,6 +42,8 @@ type updateResult struct {
 }
 
 func runUpdate(cmd *cobra.Command, args []string) error {
+	ctx, stop := signal.NotifyContext(cmd.Context(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
 	globalCfg, err := config.LoadGlobal()
 	if err != nil {
 		return fmt.Errorf("failed to load global config: %w", err)
@@ -58,7 +63,7 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 		}
 
 		fmt.Fprintf(os.Stderr, "Fetching %s...\n", cyan(rd.Name))
-		if err := vcs.Fetch(rd.Dir); err != nil {
+		if err := vcs.FetchContext(ctx, rd.Dir); err != nil {
 			return fmt.Errorf("fetch failed for %s: %w", rd.Name, err)
 		}
 		color.New(color.FgGreen).Fprintf(os.Stderr, "Updated %s\n", cyan(rd.Name))
@@ -66,45 +71,52 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 	}
 
 	// All projects update
-	projects, err := discovery.ScanAll(globalCfg.ProjectsRoot)
-	if err != nil {
-		return fmt.Errorf("failed to scan projects: %w", err)
-	}
-
+	projects, scanErr := discovery.ScanAll(globalCfg.ProjectsRoot)
 	if len(projects) == 0 {
-		fmt.Fprintln(os.Stderr, "No projects found.")
-		return nil
+		if scanErr == nil {
+			fmt.Fprintln(os.Stderr, "No projects found.")
+		}
+		return scanErr
 	}
 
 	fmt.Fprintf(os.Stderr, "Fetching %d projects...\n", len(projects))
 
 	// Fetch in parallel with bounded concurrency
 	const maxConcurrency = 8
-	sem := make(chan struct{}, maxConcurrency)
+	jobs := make(chan int)
 	results := make([]updateResult, len(projects))
 	var wg sync.WaitGroup
 
-	for i, p := range projects {
+	for range min(maxConcurrency, len(projects)) {
 		wg.Add(1)
-		go func(idx int, proj discovery.DiscoveredProject) {
+		go func() {
 			defer wg.Done()
-			sem <- struct{}{}
-			defer func() { <-sem }()
-
-			if !vcs.IsRepo(proj.Dir) {
-				results[idx] = updateResult{name: proj.Name, status: "skipped"}
-				return
+			for idx := range jobs {
+				proj := projects[idx]
+				r := updateResult{name: proj.Name, status: "updated"}
+				if err := ctx.Err(); err != nil {
+					r.status, r.err = "failed", err
+				} else if !vcs.IsRepo(proj.Dir) {
+					r.status = "skipped"
+				} else if err := vcs.FetchContext(ctx, proj.Dir); err != nil {
+					r.status, r.err = "failed", err
+				}
+				results[idx] = r
 			}
-
-			if err := vcs.Fetch(proj.Dir); err != nil {
-				results[idx] = updateResult{name: proj.Name, status: "failed", err: err}
-				return
-			}
-
-			results[idx] = updateResult{name: proj.Name, status: "updated"}
-		}(i, p)
+		}()
 	}
-
+schedule:
+	for i := range projects {
+		select {
+		case jobs <- i:
+		case <-ctx.Done():
+			for j := i; j < len(projects); j++ {
+				results[j] = updateResult{name: projects[j].Name, status: "failed", err: ctx.Err()}
+			}
+			break schedule
+		}
+	}
+	close(jobs)
 	wg.Wait()
 
 	// Report results
@@ -133,6 +145,8 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 		fmt.Fprintf(os.Stderr, ", %s %d failed", red("✗"), failed)
 	}
 	fmt.Fprintln(os.Stderr)
-
-	return nil
+	if failed > 0 {
+		return errors.Join(scanErr, fmt.Errorf("fetch failed for %d projects", failed))
+	}
+	return errors.Join(scanErr, ctx.Err())
 }

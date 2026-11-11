@@ -9,8 +9,9 @@
 ```
 spin/
   main.go                    # Entry point — calls cmd.Execute()
-  cmd/                       # Cobra command definitions (one file per subcommand)
-    root.go                  # Root command, runRoot dashboard, completeProjectNames/completeAllProjectNames
+  cmd/                       # Cobra commands and shared CLI setup
+    root.go                  # Root command, dashboard, shared project completion
+    project.go               # Configured-project setup and child exit result
     go.go                    # spin go — navigate to project directory (prints path to stdout)
     clone.go                 # spin clone — git clone repo into projects_root
     new.go                   # spin new — create project from template, init VCS
@@ -23,11 +24,7 @@ spin/
     logs.go                  # spin logs — tail live log file
     init_cmd.go              # spin init — generate .spin.toml
     open.go                  # spin open — open project in browser
-    db.go                    # spin db — parent command for database operations
-    db_copy.go               # spin db copy — copy database between profiles
-    db_snapshot.go           # spin db snapshot — snapshot a profile database
-    db_restore.go            # spin db restore — restore a database snapshot
-    db_reset.go              # spin db reset — reset a profile database
+    db.go                    # spin db copy/snapshot/restore/reset dispatcher
     shell_init.go            # spin shell-init — emit shell integration script
     completion.go            # spin completion — shell completions
   internal/                  # Internal packages (each has _test.go files)
@@ -40,11 +37,12 @@ spin/
       foreground.go          # Foreground exec with signal forwarding
       background.go          # Detached background process with log redirection
       pidfile.go             # PID file read/write/validate/clean
+      lock.go                # Per-profile advisory ownership
       util.go                # sleepMs helper (mockable in tests)
     discovery/               # Project scanning
       scan.go                # Scan (.spin.toml only) and ScanAll (all dirs at depth 3)
     db/                      # Database utilities
-      snapshot.go            # WAL checkpoint, copy, remove, snapshot helpers
+      snapshot.go            # Native SQLite page backup, offline restore/reset
     vcs/                     # Version control operations (jj-first, git fallback)
       vcs.go                 # Clone, Init, Fetch, IsRepo, IsJJRepo, IsGitRepo
     shell/                   # Shell integration script generation
@@ -61,15 +59,16 @@ spin/
 - **Config parsing**: `github.com/BurntSushi/toml`
 - **Color output**: `github.com/fatih/color`
 - **Version control**: Jujutsu (`jj`), colocated with git
-- **No other runtime dependencies**
+- **SQLite**: `modernc.org/sqlite` (pure Go; native page backup/restore, no sqlite3 executable)
+- **External tools**: jj/git for VCS, zsh/fzf for optional shell integration
 
 ## Code Conventions
 
 - All `internal/` packages must have corresponding `_test.go` files with unit tests.
 - Tests use `t.TempDir()` for isolation — no shared test state.
 - Commands in `cmd/` follow a pattern: cobra command var, `init()` to register, `runX()` function.
-- Commands that accept a `[project]` argument use `resolve.Resolve(arg, projectsRoot)` and register `ValidArgsFunction: completeProjectNames`.
-- Navigation commands (`go`, `clone`, `new`) use `resolve.ResolveAny` (no `.spin.toml` required) and `completeAllProjectNames`.
+- Configured commands use the shared `loadProject(args)` helper; directory-only navigation/update use `resolve.ResolveAny` without requiring `.spin.toml`. Completion uses `completeProjectNames` for the shared all-project inventory.
+- Clone/new parse and validate a target identity before filesystem changes. New creates its final directory exclusively and cleans up only directories it owns.
 - Color scheme: green = success, yellow = warnings, cyan = project names/commands, red = errors. Uses `fatih/color` which respects `NO_COLOR`.
 - Output goes to stderr (status messages), stdout is reserved for data.
 - Module path: `github.com/attamusc/spin`
@@ -89,6 +88,8 @@ make fmt            # go fmt ./...
 - Background processes use `Setsid: true` for session detachment — do NOT use `fork()` from Go.
 - Stopping background processes sends signals to the process group (`-pid`) since `sh -c` may spawn children.
 - Background processes use a goroutine with `cmd.Wait()` to reap children — do NOT use `cmd.Process.Release()` (causes zombies in tests).
+- `process.LockProfile` serializes live transitions and destructive DB operations. Dev holds its profile lock for the foreground lifetime. Lock files are stable inodes: never unlink them on release. Advisory locks do not verify process identity or constrain external tools.
+- SQLite backup/restore uses the native page-backup API; preserve implicit ROWIDs and destination inode. Do not replace it with VACUUM INTO or raw DB/WAL copying. Targets require exclusive access; SQLite cannot detect every idle external rollback-journal connection.
 - Lifecycle commands validate PID files with `syscall.Kill(pid, 0)` and explicitly clean stale files. Status and the dashboard never clean files: their shared read-only collector retains stale/unknown/malformed records and reports uncertainty. `spin status --format json` follows `docs/status-contract.md`; PID existence is not identity/readiness, and uptime is estimated PID-file age.
 - The `{profile_db_path}` template variable in `.spin.toml` env values is the only supported template.
 - Projects are discovered by scanning `projects_root` at depth 3 (`host/owner/repo`). `ScanAll` finds all directories; `Scan` filters to `.spin.toml` only.

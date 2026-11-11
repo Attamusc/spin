@@ -4,6 +4,7 @@ package shell
 import (
 	"bytes"
 	"fmt"
+	"strings"
 	"text/template"
 )
 
@@ -29,7 +30,7 @@ func GenerateZsh(cfg ZshConfig) (string, error) {
 	data := struct {
 		SpinCmd string
 	}{
-		SpinCmd: spinCmd,
+		SpinCmd: "'" + strings.ReplaceAll(spinCmd, "'", "'\\''") + "'",
 	}
 
 	var buf bytes.Buffer
@@ -73,16 +74,23 @@ _spin_cache_age() {
 _spin_refresh_cache() {
   local cache_file="$(_spin_cache_file)"
   local cache_dir="${cache_file:h}"
-  [[ -d "$cache_dir" ]] || mkdir -p "$cache_dir"
-  local tmp="${cache_file}.tmp.$$"
-  command {{.SpinCmd}} list --format plain 2>/dev/null > "$tmp" && mv "$tmp" "$cache_file"
+  [[ -d "$cache_dir" ]] || mkdir -p "$cache_dir" || return
+  local tmp
+  tmp=$(mktemp "${cache_file}.tmp.XXXXXX") || return
+  command {{.SpinCmd}} list --format plain > "$tmp" 2>/dev/null
+  local result=$?
+  if [[ $result -eq 0 || -s "$tmp" ]]; then
+    mv "$tmp" "$cache_file" || result=$?
+  fi
+  rm -f "$tmp"
+  return $result
 }
 
 _spin_refresh_cache_async() {
   if [[ -v _SPIN_CACHE_REFRESH_PID ]] && kill -0 $_SPIN_CACHE_REFRESH_PID 2>/dev/null; then
     return
   fi
-  ( _spin_refresh_cache ) &!
+  ( _spin_refresh_cache 2>/dev/null ) &!
   _SPIN_CACHE_REFRESH_PID=$!
 }
 
@@ -102,6 +110,10 @@ _spin_cached_projects() {
 # ============================================================================
 
 spin() {
+  if [[ "$1" == go && $# -eq 1 ]]; then
+    command {{.SpinCmd}} "$@"
+    return $?
+  fi
   # Commands that don't produce paths — pass through directly
   case "$1" in
     ""|help|completion|shell-init)
@@ -112,15 +124,16 @@ spin() {
 
   # Commands that print a directory path as the last stdout line
   case "$1" in
-    go|new|clone|git-clone)
+    go|new|clone)
       local output exit_code
-      output=$(command {{.SpinCmd}} "$@" 2>&1)
+      output=$(command {{.SpinCmd}} "$@")
       exit_code=$?
 
       if [[ $exit_code -eq 0 ]]; then
         # The last line of stdout is the target path
         local last_line="${output##*$'\n'}"
-        if [[ -d "$last_line" ]]; then
+        # Navigation data is an absolute path; help text is not.
+        if [[ "$last_line" == /* ]]; then
           # Print any preceding lines (informational output) to stderr
           local preceding="${output%$'\n'*}"
           if [[ -n "$preceding" && "$preceding" != "$last_line" ]]; then
@@ -129,8 +142,8 @@ spin() {
           # Invalidate cache after directory-changing operations
           local cache_file="$(_spin_cache_file)"
           [[ -f "$cache_file" ]] && rm -f "$cache_file"
-          builtin cd "$last_line"
-          return 0
+          builtin cd -- "$last_line"
+          return $?
         fi
       fi
 
@@ -159,7 +172,7 @@ if command -v fzf >/dev/null 2>&1; then
       --preview='echo {}')
 
     if [[ -n "$selected" ]]; then
-      BUFFER="spin go $selected"
+      BUFFER="spin go ${(q)selected}"
       zle accept-line
     fi
     zle reset-prompt
@@ -167,16 +180,6 @@ if command -v fzf >/dev/null 2>&1; then
   zle -N _spin_fzf_widget
   bindkey '^ ' _spin_fzf_widget
 fi
-
-# ============================================================================
-# Completion helpers (used by fzf widget; full completion via cobra below)
-# ============================================================================
-
-_spin_complete_projects() {
-  local -a projects
-  projects=(${(f)"$(_spin_cached_projects)"})
-  compadd -a projects
-}
 
 # ============================================================================
 # Fuzzy completion override for spin (wraps cobra-generated completion)

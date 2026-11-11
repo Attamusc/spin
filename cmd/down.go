@@ -4,9 +4,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/attamusc/spin/internal/config"
 	"github.com/attamusc/spin/internal/process"
-	"github.com/attamusc/spin/internal/resolve"
 	"github.com/fatih/color"
 	"github.com/spf13/cobra"
 )
@@ -28,20 +26,15 @@ func init() {
 }
 
 func runDown(cmd *cobra.Command, args []string) error {
-	globalCfg, err := config.LoadGlobal()
+	globalCfg, project, err := loadProject(args)
 	if err != nil {
-		return fmt.Errorf("failed to load global config: %w", err)
+		return err
 	}
-
-	// Resolve project (from argument or CWD)
-	var arg string
-	if len(args) > 0 {
-		arg = args[0]
-	}
-	project, err := resolve.Resolve(arg, globalCfg.ProjectsRoot)
+	release, err := process.LockProfile(globalCfg.DataRoot, project.Owner, project.Repo, "live")
 	if err != nil {
-		return fmt.Errorf("failed to resolve project: %w", err)
+		return err
 	}
+	defer release()
 
 	pidFile := process.PIDFilePath(globalCfg.DataRoot, project.Owner, project.Repo)
 
@@ -56,9 +49,9 @@ func runDown(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("could not read PID file: %w", err)
 	}
 
-	if !process.IsProcessAlive(pid) {
-		// Clean up stale PID file
-		_ = os.Remove(pidFile)
+	if stale, err := process.CleanStalePIDFile(pidFile); err != nil {
+		return err
+	} else if stale {
 		color.New(color.FgYellow).Fprintf(os.Stderr, "%s is already stopped (cleaned up stale PID file)\n", cyan(project.Name))
 		return nil
 	}
@@ -70,7 +63,9 @@ func runDown(cmd *cobra.Command, args []string) error {
 	}
 
 	// Remove PID file
-	_ = os.Remove(pidFile)
+	if err := os.Remove(pidFile); err != nil && !os.IsNotExist(err) {
+		return err
+	}
 
 	color.New(color.FgGreen).Fprintf(os.Stderr, "Stopped %s\n", cyan(project.Name))
 	return nil

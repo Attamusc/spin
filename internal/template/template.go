@@ -2,6 +2,7 @@
 package template
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -16,8 +17,13 @@ var skipDirs = map[string]bool{
 }
 
 // Apply copies the contents of srcDir into dstDir recursively.
-// It skips .git and .jj directories. dstDir must already exist.
+// It allows a symlinked root, but skips .git/.jj and rejects linked/special entries.
+// dstDir must already exist.
 func Apply(srcDir, dstDir string) error {
+	srcDir, err := filepath.EvalSymlinks(srcDir)
+	if err != nil {
+		return fmt.Errorf("source directory: %w", err)
+	}
 	srcInfo, err := os.Stat(srcDir)
 	if err != nil {
 		return fmt.Errorf("source directory: %w", err)
@@ -31,18 +37,15 @@ func Apply(srcDir, dstDir string) error {
 			return err
 		}
 
-		// Compute the relative path from srcDir
 		rel, err := filepath.Rel(srcDir, path)
 		if err != nil {
 			return fmt.Errorf("computing relative path: %w", err)
 		}
 
-		// Skip root directory itself
 		if rel == "." {
 			return nil
 		}
 
-		// Skip excluded directories
 		if d.IsDir() && skipDirs[d.Name()] {
 			return filepath.SkipDir
 		}
@@ -52,7 +55,9 @@ func Apply(srcDir, dstDir string) error {
 		if d.IsDir() {
 			return os.MkdirAll(targetPath, 0755)
 		}
-
+		if !d.Type().IsRegular() {
+			return fmt.Errorf("unsupported template file type: %s", path)
+		}
 		return copyFile(path, targetPath)
 	})
 }
@@ -79,11 +84,6 @@ func copyFile(src, dst string) error {
 	if err != nil {
 		return fmt.Errorf("creating destination: %w", err)
 	}
-	defer dstFile.Close()
-
-	if _, err := io.Copy(dstFile, srcFile); err != nil {
-		return fmt.Errorf("copying data: %w", err)
-	}
-
-	return nil
+	_, copyErr := io.Copy(dstFile, srcFile)
+	return errors.Join(copyErr, dstFile.Close())
 }

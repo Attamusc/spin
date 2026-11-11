@@ -29,33 +29,26 @@ func init() {
 }
 
 func runUp(cmd *cobra.Command, args []string) error {
-	// Load global config
-	globalCfg, err := config.LoadGlobal()
+	globalCfg, project, err := loadProject(args)
 	if err != nil {
-		return fmt.Errorf("failed to load global config: %w", err)
+		return err
 	}
-
-	// Resolve project (from argument or CWD)
-	var arg string
-	if len(args) > 0 {
-		arg = args[0]
-	}
-	project, err := resolve.Resolve(arg, globalCfg.ProjectsRoot)
+	release, err := process.LockProfile(globalCfg.DataRoot, project.Owner, project.Repo, "live")
 	if err != nil {
-		return fmt.Errorf("failed to resolve project: %w", err)
+		return err
 	}
+	defer release()
 
 	// Check if already running
 	pidFile := process.PIDFilePath(globalCfg.DataRoot, project.Owner, project.Repo)
-	pid, err := process.ReadPID(pidFile)
-	if err == nil && process.IsProcessAlive(pid) {
-		cyan := color.New(color.FgCyan).SprintFunc()
-		fmt.Fprintf(os.Stderr, "%s is already running (PID %d)\n", cyan(project.Name), pid)
-		return nil
+	if _, err := process.CleanStalePIDFile(pidFile); err != nil {
+		return err
 	}
-	// Clean up stale PID file if present
-	if err == nil {
-		process.CleanStalePIDFile(pidFile)
+	if pid, err := process.ReadPID(pidFile); err == nil {
+		fmt.Fprintf(cmd.ErrOrStderr(), "%s is already running (PID %d)\n", project.Name, pid)
+		return nil
+	} else if !os.IsNotExist(err) {
+		return err
 	}
 
 	// Port conflict detection
@@ -77,7 +70,10 @@ func runUp(cmd *cobra.Command, args []string) error {
 	env := config.ResolveEnv(project.Config.Live.Env, dbPath)
 
 	// Construct log and PID file paths
-	logFile := process.LogFilePath(globalCfg.DataRoot, project.Owner, project.Repo)
+	logFile, err := config.ProjectPath(globalCfg.DataRoot, project.Owner, project.Repo, "logs", "live.log")
+	if err != nil {
+		return err
+	}
 
 	// Start background process
 	childPID, err := process.StartBackground(process.BackgroundOptions{

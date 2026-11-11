@@ -2,13 +2,10 @@ package cmd
 
 import (
 	"fmt"
-	"os"
 	"os/exec"
 	"runtime"
 
-	"github.com/attamusc/spin/internal/config"
 	"github.com/attamusc/spin/internal/process"
-	"github.com/attamusc/spin/internal/resolve"
 	"github.com/fatih/color"
 	"github.com/spf13/cobra"
 )
@@ -56,18 +53,9 @@ func openURL(goos, url string, run func(string, ...string) error) error {
 }
 
 func runOpen(cmd *cobra.Command, args []string) error {
-	globalCfg, err := config.LoadGlobal()
+	globalCfg, project, err := loadProject(args)
 	if err != nil {
-		return fmt.Errorf("failed to load global config: %w", err)
-	}
-
-	var arg string
-	if len(args) > 0 {
-		arg = args[0]
-	}
-	project, err := resolve.Resolve(arg, globalCfg.ProjectsRoot)
-	if err != nil {
-		return fmt.Errorf("failed to resolve project: %w", err)
+		return err
 	}
 
 	cyan := color.New(color.FgCyan).SprintFunc()
@@ -89,7 +77,7 @@ func runOpen(cmd *cobra.Command, args []string) error {
 	}
 
 	url := fmt.Sprintf("http://localhost:%d", port)
-	color.New(color.FgGreen).Fprintf(os.Stderr, "Opening %s (%s)...\n", cyan(project.Name), url)
+	color.New(color.FgGreen).Fprintf(cmd.ErrOrStderr(), "Opening %s (%s)...\n", cyan(project.Name), url)
 
 	return openURL(runtime.GOOS, url, runBrowserCommand)
 }

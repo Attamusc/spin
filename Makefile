@@ -10,7 +10,7 @@ LDFLAGS  ?=
 # Default install location
 PREFIX   ?= /usr/local
 
-.PHONY: all build install uninstall test test-verbose test-race lint vet fmt clean tidy run help
+.PHONY: all build install uninstall test test-verbose test-race lint vet vuln fmt clean tidy run help
 
 ## —— Build ——————————————————————————————————————————————
 
@@ -38,12 +38,11 @@ fmt: ## Format all Go source files
 vet: ## Run go vet
 	$(GO) vet ./...
 
-lint: vet ## Lint the codebase (vet + staticcheck if available)
-	@if command -v staticcheck >/dev/null 2>&1; then \
-		staticcheck ./...; \
-	else \
-		echo "staticcheck not installed — skipping (install: go install honnef.co/go/tools/cmd/staticcheck@latest)"; \
-	fi
+lint: vet ## Run vet and pinned staticcheck (requires Go 1.26 toolchain)
+	$(GO) run honnef.co/go/tools/cmd/staticcheck@v0.8.2 ./...
+
+vuln: ## Check reachable vulnerabilities using pinned govulncheck
+	$(GO) run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
 
 ## —— Testing ———————————————————————————————————————————
 

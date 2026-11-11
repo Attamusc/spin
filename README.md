@@ -36,7 +36,7 @@ make install        # installs to /usr/local/bin (PREFIX=/usr/local)
 # Navigate to a project (cd's into the directory)
 spin go attamusc/mindtrail            # by owner/repo
 spin go mindtrail                     # by short name
-spin go                               # interactive fzf picker
+spin go                               # list project names; Ctrl+Space opens fzf
 
 # Clone a repo into projects_root/github.com/owner/repo
 spin clone attamusc/some-repo
@@ -78,7 +78,7 @@ This provides:
 
 | Command | Description |
 |---------|-------------|
-| `spin go [project]` | Navigate to a project directory (fzf picker when no arg) |
+| `spin go [project]` | Navigate to a project directory (list names when no arg; Ctrl+Space for fzf) |
 | `spin clone <repo>` | Clone a git repo into the projects directory |
 | `spin new <name>` | Create a new project directory with VCS init |
 | `spin list` | List all projects (`*` marks configured ones) |
@@ -106,6 +106,8 @@ This provides:
 | `spin db restore <profile> <name>` | Restore a database from a named snapshot |
 | `spin db reset <profile>` | Delete a profile's database |
 
+Database copy/snapshot uses SQLite's native page-backup API, including committed WAL data and preserving implicit ROWIDs; it does not copy WAL/SHM files or require the `sqlite3` executable. Restore preserves the destination inode and requires SQLite exclusive access. Copy/restore/reset also reject a running spin-managed target (dev or live), and serialize with lifecycle operations using per-profile advisory locks. Stop external users before destructive operations: idle rollback-journal connections cannot always be detected. The state tree is trusted local storage, not a sandbox against concurrent hostile filesystem mutation.
+
 ### Shell & completions
 
 | Command | Description |
@@ -126,11 +128,13 @@ This provides:
 
 When a `[project]` argument is given, it's resolved in order:
 
-1. **No argument** — walk up from CWD looking for `.spin.toml` (process commands) or list all projects (navigation commands)
+1. **No argument** — use the containing `host/owner/repo` project and its root `.spin.toml` (process commands); `spin go` lists all project names
 2. **`owner/repo`** — match against `{projects_root}/*/owner/repo`
 3. **Short name** — match the repo portion across all discovered projects
 
-Multiple matches produce a disambiguation list. No matches produce suggestions.
+Exact names take precedence over case-insensitive substring matches. Multiple matches produce a disambiguation list, including the host for cross-host collisions. No matches produce suggestions; navigation does not automatically clone.
+
+Incomplete scans retain accessible rows in `list` and argument-free `go`, and bulk `update` still fetches accessible repositories; these commands return nonzero to report incompleteness. Completion and the cached picker can suggest accessible candidates. Named navigation (`spin go <name>`), single-project update, and configured resolution all fail closed when an unreadable host could hide another match.
 
 ## Project config
 
@@ -178,8 +182,10 @@ default_owner = "attamusc"            # default owner for short-name resolution
 
 - `projects_root` defaults to `~/projects`. Data is stored in `{projects_root}/.spin/`.
 - `default_host` defaults to `github.com`. Used by `spin clone` and `spin new`.
-- `default_owner` is used to expand bare repo names (e.g., `spin go mindtrail` → `attamusc/mindtrail`).
-- `[templates]` maps names to directories for `spin new --template <name>`.
+- `default_owner` supplies the owner for bare names in `spin clone` and `spin new`. Navigation searches local repositories instead.
+- `[templates]` maps names to directories for `spin new --template <name>`. A template root may be a symlink. Its contents copy as regular files/directories, preserving file permissions and excluding `.git`/`.jj`; linked entries and special files are rejected. If VCS initialization fails, `spin new` warns and retains the scaffolded directory.
+- Project, snapshot, and DB filenames must be single path components: no slashes, backslashes, or control characters, and not equal to `.` or `..`. State descendants (including `.spin` itself) must not be symlinks; a configured projects-root symlink is allowed. Repositories aliased outside that root are not supported.
+- Same `owner/repo` names on multiple hosts are ambiguous. Configured commands reject these collisions rather than sharing PID/log/DB state. Existing state is not moved.
 
 ## Directory structure
 
@@ -196,7 +202,7 @@ default_owner = "attamusc"            # default owner for short-name resolution
     .spin.toml                              # project config
 ```
 
-Projects are discovered by scanning `projects_root` at depth 3 (`host/owner/repo`). All directories at this depth are considered projects — `.spin.toml` is only required for process management commands.
+Projects are discovered by scanning `projects_root` at depth 3 (`host/owner/repo`). All directories at this depth are considered projects — `.spin.toml` is required for process management and database commands.
 
 ## Version control
 
@@ -212,12 +218,13 @@ VCS operations prefer [Jujutsu](https://github.com/jj-vcs/jj) (`jj`) and fall ba
 make build          # compile to dist/spin
 make test           # run all tests
 make test-race      # run tests with race detector
-make lint           # vet + staticcheck
+make lint           # vet + pinned staticcheck; no silent skips
+make vuln           # pinned govulncheck
 make fmt            # format source files
 make help           # show all targets
 ```
 
-Requires Go 1.25+.
+Requires Go 1.25.5+ for the application. Lint/vulnerability tooling uses a Go 1.26 toolchain and pinned `go run` versions (downloaded into Go's cache, not globally installed). Use current patch releases. CI tests Linux/macOS with Go 1.25 and 1.26, including race and executable zsh fixtures.
 
 ## License
 

@@ -1,6 +1,7 @@
 package vcs
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -24,85 +25,46 @@ func hasGit() bool {
 // For jj: runs "jj git clone --colocate <url> <targetDir>".
 // For git: runs "git clone <url> <targetDir>".
 func Clone(url, targetDir string) error {
-	if hasJJ() {
-		cmd := exec.Command("jj", "git", "clone", "--colocate", url, targetDir)
-		cmd.Stdout = os.Stderr // info output to stderr (stdout reserved for paths)
-		cmd.Stderr = os.Stderr
-		if err := cmd.Run(); err != nil {
-			return fmt.Errorf("jj git clone failed: %w", err)
-		}
-		return nil
-	}
-
-	if hasGit() {
-		cmd := exec.Command("git", "clone", url, targetDir)
-		cmd.Stdout = os.Stderr
-		cmd.Stderr = os.Stderr
-		if err := cmd.Run(); err != nil {
-			return fmt.Errorf("git clone failed: %w", err)
-		}
-		return nil
-	}
-
-	return fmt.Errorf("neither jj nor git found in PATH")
+	return preferred("", []string{"git", "clone", "--colocate", url, targetDir}, []string{"clone", url, targetDir})
 }
 
-// Init initializes a new VCS repository in the given directory.
-// For jj: runs "jj git init --colocate" in dir.
-// For git: runs "git init" in dir.
+// Init initializes a repository, preferring jj when available.
 func Init(dir string) error {
+	return preferred(dir, []string{"git", "init", "--colocate"}, []string{"init"})
+}
+
+func preferred(dir string, jjArgs, gitArgs []string) error {
 	if hasJJ() {
-		cmd := exec.Command("jj", "git", "init", "--colocate")
-		cmd.Dir = dir
-		cmd.Stdout = os.Stderr
-		cmd.Stderr = os.Stderr
-		if err := cmd.Run(); err != nil {
-			return fmt.Errorf("jj git init failed: %w", err)
-		}
-		return nil
+		return run(context.Background(), dir, "jj", jjArgs...)
 	}
-
 	if hasGit() {
-		cmd := exec.Command("git", "init")
-		cmd.Dir = dir
-		cmd.Stdout = os.Stderr
-		cmd.Stderr = os.Stderr
-		if err := cmd.Run(); err != nil {
-			return fmt.Errorf("git init failed: %w", err)
-		}
-		return nil
+		return run(context.Background(), dir, "git", gitArgs...)
 	}
-
 	return fmt.Errorf("neither jj nor git found in PATH")
 }
 
 // Fetch fetches latest changes from remote for the repo in dir.
-// For jj: runs "jj git fetch" in dir.
-// For git: runs "git fetch --all" in dir.
-func Fetch(dir string) error {
+func Fetch(dir string) error { return FetchContext(context.Background(), dir) }
+
+// FetchContext fetches latest changes until ctx is canceled.
+func FetchContext(ctx context.Context, dir string) error {
 	if IsJJRepo(dir) {
-		cmd := exec.Command("jj", "git", "fetch")
-		cmd.Dir = dir
-		cmd.Stdout = os.Stderr
-		cmd.Stderr = os.Stderr
-		if err := cmd.Run(); err != nil {
-			return fmt.Errorf("jj git fetch failed: %w", err)
-		}
-		return nil
+		return run(ctx, dir, "jj", "git", "fetch")
 	}
-
 	if IsGitRepo(dir) {
-		cmd := exec.Command("git", "fetch", "--all")
-		cmd.Dir = dir
-		cmd.Stdout = os.Stderr
-		cmd.Stderr = os.Stderr
-		if err := cmd.Run(); err != nil {
-			return fmt.Errorf("git fetch failed: %w", err)
-		}
-		return nil
+		return run(ctx, dir, "git", "fetch", "--all")
 	}
-
 	return fmt.Errorf("directory %s is not a jj or git repository", dir)
+}
+
+func run(ctx context.Context, dir, tool string, args ...string) error {
+	cmd := exec.CommandContext(ctx, tool, args...)
+	cmd.Dir = dir
+	cmd.Stdout, cmd.Stderr = os.Stderr, os.Stderr
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("%s %s failed: %w", tool, args[0], err)
+	}
+	return nil
 }
 
 // IsRepo returns true if dir contains a .jj or .git directory.

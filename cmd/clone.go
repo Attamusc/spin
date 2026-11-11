@@ -51,11 +51,22 @@ func runClone(cmd *cobra.Command, args []string) error {
 	owner = strings.ToLower(owner)
 	repo = strings.ToLower(repo)
 
-	targetDir := filepath.Join(globalCfg.ProjectsRoot, host, owner, repo)
-
-	// Check if target already exists
-	if info, err := os.Stat(targetDir); err == nil && info.IsDir() {
+	targetDir, err := config.ProjectPath(globalCfg.ProjectsRoot, host, owner, repo)
+	if err != nil {
+		return err
+	}
+	if _, err := os.Lstat(targetDir); err == nil {
 		return fmt.Errorf("directory already exists: %s", targetDir)
+	} else if !os.IsNotExist(err) {
+		return err
+	}
+	root, err := os.OpenRoot(globalCfg.ProjectsRoot)
+	if err != nil {
+		return err
+	}
+	defer root.Close()
+	if err := root.MkdirAll(filepath.Join(host, owner), 0755); err != nil {
+		return err
 	}
 
 	// Construct clone URL
@@ -79,6 +90,16 @@ func runClone(cmd *cobra.Command, args []string) error {
 // parseRepoArg parses a repo argument into host, owner, repo components.
 // Supports: "owner/repo", "repo" (with default owner), full URL.
 func parseRepoArg(arg, defaultHost, defaultOwner, hostFlag string) (host, owner, repo string, err error) {
+	defer func() {
+		if err != nil {
+			return
+		}
+		for _, part := range []string{host, owner, repo} {
+			if err = config.ValidateName(part); err != nil {
+				return
+			}
+		}
+	}()
 	// Try as full URL first
 	if strings.HasPrefix(arg, "https://") || strings.HasPrefix(arg, "http://") {
 		u, parseErr := url.Parse(arg)
@@ -86,8 +107,8 @@ func parseRepoArg(arg, defaultHost, defaultOwner, hostFlag string) (host, owner,
 			return "", "", "", fmt.Errorf("invalid URL %q: %w", arg, parseErr)
 		}
 		parts := strings.Split(strings.Trim(u.Path, "/"), "/")
-		if len(parts) < 2 {
-			return "", "", "", fmt.Errorf("URL %q must contain owner/repo", arg)
+		if len(parts) != 2 || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
+			return "", "", "", fmt.Errorf("URL %q must contain exactly host/owner/repo", arg)
 		}
 		host = u.Host
 		owner = parts[0]

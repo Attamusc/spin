@@ -34,6 +34,28 @@ port = 3000
 
 // --- CWD-based resolution (FromDir) ---
 
+func TestResolutionFailsClosedOnConfigStatError(t *testing.T) {
+	root := t.TempDir()
+	visible := createProject(t, root, "visible", "owner", "app")
+	other := createProject(t, root, "uninspectable", "owner", "app")
+	path := filepath.Join(other, ".spin.toml")
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(".spin.toml", path); err != nil {
+		t.Fatal(err)
+	}
+	if project, err := FromName("owner/app", root); err == nil || project != nil {
+		t.Fatalf("named configured resolution guessed an identity: %+v, %v", project, err)
+	}
+	if project, err := FromDir(visible, root); err == nil || project != nil {
+		t.Fatalf("CWD configured resolution ignored uncertainty: %+v, %v", project, err)
+	}
+	if project, err := ResolveAny("owner/app", root, ""); err == nil || project != nil {
+		t.Fatalf("directory resolution ignored uncertainty: %+v, %v", project, err)
+	}
+}
+
 func TestFromDir_ProjectRoot(t *testing.T) {
 	tmpDir := t.TempDir()
 	projectDir := createProject(t, tmpDir, "github.com", "attamusc", "mindtrail")
@@ -580,13 +602,58 @@ func TestResolveAny_OwnerRepo_MultipleHosts(t *testing.T) {
 	createDirOnly(t, tmpDir, "github.com", "attamusc", "dualhost")
 	createDirOnly(t, tmpDir, "gitlab.com", "attamusc", "dualhost")
 
-	rd, err := ResolveAny("attamusc/dualhost", tmpDir, "")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	_, err := ResolveAny("attamusc/dualhost", tmpDir, "")
+	if err == nil || !strings.Contains(err.Error(), "github.com/attamusc/dualhost") || !strings.Contains(err.Error(), "gitlab.com/attamusc/dualhost") {
+		t.Fatalf("expected qualified ambiguity, got %v", err)
 	}
+}
 
-	// Should find one of them (first host alphabetically)
-	if rd.Owner != "attamusc" || rd.Repo != "dualhost" {
-		t.Errorf("expected attamusc/dualhost, got %s/%s", rd.Owner, rd.Repo)
+func TestIdentityBoundaries(t *testing.T) {
+	root := t.TempDir()
+	dir := createProject(t, root, "a.example", "owner", "repo")
+	createProject(t, root, "b.example", "owner", "repo")
+	for _, name := range []string{"owner/repo", "repo"} {
+		for _, configured := range []bool{true, false} {
+			var err error
+			if configured {
+				_, err = FromName(name, root)
+			} else {
+				_, err = ResolveAny(name, root, "")
+			}
+			if err == nil || !strings.Contains(err.Error(), "a.example/owner/repo") || !strings.Contains(err.Error(), "b.example/owner/repo") {
+				t.Errorf("%q configured=%v: %v", name, configured, err)
+			}
+		}
+	}
+	if _, err := FromDir(dir, root); err == nil {
+		t.Error("CWD accepted colliding identity")
+	}
+	for _, name := range []string{"..", "owner/../repo", "owner/repo/extra", "/repo", "owner/", `owner\repo`} {
+		if _, err := FromName(name, root); err == nil {
+			t.Errorf("accepted invalid name %q", name)
+		}
+		if _, err := ResolveAny(name, root, ""); err == nil {
+			t.Errorf("accepted invalid navigation name %q", name)
+		}
+	}
+}
+
+func TestFromDirRejectsNestedConfigRoot(t *testing.T) {
+	root := t.TempDir()
+	nested := createProject(t, root, "host", "owner", "repo/nested")
+	if _, err := FromDir(nested, root); err == nil {
+		t.Error("accepted nested configuration as project root")
+	}
+}
+
+func TestFromDirRejectsSymlinkEscape(t *testing.T) {
+	root := t.TempDir()
+	outside := createProject(t, t.TempDir(), "host", "owner", "repo")
+	link := filepath.Join(root, "host")
+	if err := os.Symlink(filepath.Dir(filepath.Dir(outside)), link); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := FromDir(filepath.Join(link, "owner", "repo"), root); err == nil {
+		t.Error("accepted escaped project")
 	}
 }

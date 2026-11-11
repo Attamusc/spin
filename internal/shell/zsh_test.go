@@ -16,7 +16,7 @@ func TestGenerateZsh_DefaultSpinCmd(t *testing.T) {
 	}
 
 	// Should use "spin" when no SpinPath given
-	if !strings.Contains(output, "command spin ") {
+	if !strings.Contains(output, "command 'spin' ") {
 		t.Error("expected 'command spin' in output when SpinPath is empty")
 	}
 }
@@ -27,18 +27,18 @@ func TestGenerateZsh_CustomSpinPath(t *testing.T) {
 		t.Fatalf("GenerateZsh() error: %v", err)
 	}
 
-	if !strings.Contains(output, "command /usr/local/bin/spin ") {
+	if !strings.Contains(output, "command '/usr/local/bin/spin' ") {
 		t.Error("expected custom spin path in output")
 	}
 
-	// Should NOT contain bare "command spin " (without the path)
+	// Should NOT contain bare "command 'spin' " (without the path)
 	lines := strings.Split(output, "\n")
 	for _, line := range lines {
 		trimmed := strings.TrimSpace(line)
 		if strings.HasPrefix(trimmed, "#") {
 			continue // skip comments
 		}
-		if strings.Contains(trimmed, "command spin ") && !strings.Contains(trimmed, "command /usr/local/bin/spin") {
+		if strings.Contains(trimmed, "command 'spin' ") && !strings.Contains(trimmed, "command '/usr/local/bin/spin'") {
 			t.Errorf("found bare 'command spin' instead of custom path in: %s", trimmed)
 		}
 	}
@@ -54,7 +54,7 @@ func TestGenerateZsh_ContainsShellWrapper(t *testing.T) {
 		"spin()",
 		"builtin cd",
 		`case "$1" in`,
-		"go|new|clone|git-clone)",
+		"go|new|clone)",
 	}
 	for _, s := range required {
 		if !strings.Contains(output, s) {
@@ -89,9 +89,8 @@ func TestGenerateZsh_ContainsCompletion(t *testing.T) {
 		t.Fatalf("GenerateZsh() error: %v", err)
 	}
 
-	// Should contain the project completion helper (used by fzf widget)
-	if !strings.Contains(output, "_spin_complete_projects()") {
-		t.Error("expected _spin_complete_projects() in output")
+	if !strings.Contains(output, "_spin_cobra && return 0") {
+		t.Error("expected delegation to cobra completion")
 	}
 
 	// Should NOT contain the old compdef registration (cobra handles this now)

@@ -23,8 +23,15 @@ Each mode uses a separate SQLite database for data isolation.`,
 }
 
 // Execute runs the root command.
-func Execute() error {
-	return rootCmd.Execute()
+func Execute() int {
+	err := rootCmd.Execute()
+	if code, ok := err.(exitError); ok {
+		return int(code)
+	}
+	if err != nil {
+		return 1
+	}
+	return 0
 }
 
 func runRoot(cmd *cobra.Command, args []string) error {
@@ -43,20 +50,11 @@ func runRoot(cmd *cobra.Command, args []string) error {
 	}
 	fmt.Fprintln(os.Stderr)
 
-	// Show brief help
 	fmt.Fprintf(os.Stderr, "%s\n\n", bold("Common commands:"))
-	fmt.Fprintf(os.Stderr, "  %s           Navigate to a project directory\n", cyan("spin go"))
-	fmt.Fprintf(os.Stderr, "  %s          Run a project in dev mode (foregrounded)\n", cyan("spin dev"))
-	fmt.Fprintf(os.Stderr, "  %s           Start a project in live mode (backgrounded)\n", cyan("spin up"))
-	fmt.Fprintf(os.Stderr, "  %s         Stop a live instance\n", cyan("spin down"))
-	fmt.Fprintf(os.Stderr, "  %s       Show running instances\n", cyan("spin status"))
-	fmt.Fprintf(os.Stderr, "  %s         Tail live instance logs\n", cyan("spin logs"))
-	fmt.Fprintf(os.Stderr, "  %s         List all projects\n", cyan("spin list"))
-	fmt.Fprintf(os.Stderr, "  %s        Clone a git repo\n", cyan("spin clone"))
-	fmt.Fprintf(os.Stderr, "  %s          Create a new project\n", cyan("spin new"))
-	fmt.Fprintf(os.Stderr, "  %s       Fetch latest for all repos\n", cyan("spin update"))
-	fmt.Fprintf(os.Stderr, "  %s         Initialize a new .spin.toml\n", cyan("spin init"))
-	fmt.Fprintf(os.Stderr, "  %s           Database operations (copy, snapshot, restore, reset)\n", cyan("spin db"))
+	for _, name := range []string{"go", "dev", "up", "down", "status", "logs", "list", "clone", "new", "update", "init", "db"} {
+		command, _, _ := cmd.Find([]string{name})
+		fmt.Fprintf(os.Stderr, "  %-23s %s\n", cyan("spin "+name), command.Short)
+	}
 	fmt.Fprintln(os.Stderr)
 	fmt.Fprintf(os.Stderr, "Run %s for full usage.\n", cyan("spin help"))
 
@@ -69,10 +67,7 @@ func runRoot(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// completeProjectNames returns a cobra completion function that suggests
-// discovered project names (owner/repo format) for tab completion.
-// This uses ScanAll to include all projects, not just those with .spin.toml.
-// When toComplete is non-empty, results are fuzzy-filtered.
+// Project completion includes unconfigured directories, as navigation does.
 func completeProjectNames(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 	// Only complete the first argument (project name)
 	if len(args) > 0 {
@@ -84,11 +79,9 @@ func completeProjectNames(cmd *cobra.Command, args []string, toComplete string) 
 		return nil, cobra.ShellCompDirectiveNoFileComp
 	}
 
-	projects, err := discovery.ScanAll(globalCfg.ProjectsRoot)
-	if err != nil {
-		return nil, cobra.ShellCompDirectiveNoFileComp
-	}
-
+	// Completion can suggest accessible projects without claiming a complete
+	// inventory; actual resolution still fails closed if uniqueness is unknown.
+	projects, _ := discovery.ScanAll(globalCfg.ProjectsRoot)
 	names := fuzzyFilterProjects(projects, toComplete)
 	return names, cobra.ShellCompDirectiveNoFileComp
 }

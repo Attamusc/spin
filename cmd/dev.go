@@ -2,11 +2,9 @@ package cmd
 
 import (
 	"fmt"
-	"os"
 
 	"github.com/attamusc/spin/internal/config"
 	"github.com/attamusc/spin/internal/process"
-	"github.com/attamusc/spin/internal/resolve"
 	"github.com/fatih/color"
 	"github.com/spf13/cobra"
 )
@@ -28,21 +26,15 @@ func init() {
 }
 
 func runDev(cmd *cobra.Command, args []string) error {
-	// Load global config
-	globalCfg, err := config.LoadGlobal()
+	globalCfg, project, err := loadProject(args)
 	if err != nil {
-		return fmt.Errorf("failed to load global config: %w", err)
+		return err
 	}
-
-	// Resolve project (from argument or CWD)
-	var arg string
-	if len(args) > 0 {
-		arg = args[0]
-	}
-	project, err := resolve.Resolve(arg, globalCfg.ProjectsRoot)
+	release, err := process.LockProfile(globalCfg.DataRoot, project.Owner, project.Repo, "dev")
 	if err != nil {
-		return fmt.Errorf("failed to resolve project: %w", err)
+		return err
 	}
+	defer release()
 
 	// Resolve DB path for dev profile
 	dbPath, err := config.ResolveProfileDBPath(
@@ -60,7 +52,7 @@ func runDev(cmd *cobra.Command, args []string) error {
 	env := config.ResolveEnv(project.Config.Dev.Env, dbPath)
 
 	cyan := color.New(color.FgCyan).SprintFunc()
-	color.New(color.FgGreen).Fprintf(os.Stderr, "Starting dev mode for %s...\n", cyan(project.Name))
+	color.New(color.FgGreen).Fprintf(cmd.ErrOrStderr(), "Starting dev mode for %s...\n", cyan(project.Name))
 
 	// Run the foreground process
 	exitCode, err := process.RunForeground(process.ForegroundOptions{
@@ -73,7 +65,8 @@ func runDev(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	if exitCode != 0 {
-		os.Exit(exitCode)
+		cmd.SilenceErrors, cmd.SilenceUsage = true, true
+		return exitError(exitCode)
 	}
 
 	return nil

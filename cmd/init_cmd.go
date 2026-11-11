@@ -1,12 +1,10 @@
 package cmd
 
 import (
-	"bufio"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/fatih/color"
 	"github.com/spf13/cobra"
@@ -53,9 +51,6 @@ func runInit(cmd *cobra.Command, args []string) error {
 	cyan := color.New(color.FgCyan).SprintFunc()
 	fmt.Fprintf(os.Stderr, "Detected command: %s\n", cyan(devCommand))
 	fmt.Fprintf(os.Stderr, "Dev port: 3001, Live port: 3000\n")
-
-	// Check .gitignore for .spin/ entry
-	checkGitignore(cwd)
 
 	return nil
 }
@@ -107,25 +102,4 @@ command = %q
 port = 3000
 env = { DATABASE_URL = "file:{profile_db_path}" }
 `, devCommand, devCommand)
-}
-
-// checkGitignore checks if .spin/ is in .gitignore and reminds the user if not.
-func checkGitignore(dir string) {
-	gitignorePath := filepath.Join(dir, ".gitignore")
-	f, err := os.Open(gitignorePath)
-	if err != nil {
-		color.New(color.FgYellow).Fprintf(os.Stderr, "\nReminder: add '.spin/' to your .gitignore\n")
-		return
-	}
-	defer f.Close()
-
-	scanner := bufio.NewScanner(f)
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		if line == ".spin/" || line == ".spin" {
-			return // Already present
-		}
-	}
-
-	color.New(color.FgYellow).Fprintf(os.Stderr, "\nReminder: add '.spin/' to your .gitignore\n")
 }

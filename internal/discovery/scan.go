@@ -1,6 +1,7 @@
 package discovery
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -41,6 +42,7 @@ func ScanAll(projectsRoot string) ([]DiscoveredProject, error) {
 	}
 
 	var projects []DiscoveredProject
+	var readErrors []error
 
 	// Level 1: hosts (e.g., github.com)
 	hosts, err := os.ReadDir(absRoot)
@@ -58,7 +60,8 @@ func ScanAll(projectsRoot string) ([]DiscoveredProject, error) {
 		// Level 2: owners (e.g., attamusc)
 		owners, err := os.ReadDir(hostPath)
 		if err != nil {
-			continue // skip unreadable host dirs
+			readErrors = append(readErrors, err)
+			continue
 		}
 
 		for _, owner := range owners {
@@ -71,7 +74,8 @@ func ScanAll(projectsRoot string) ([]DiscoveredProject, error) {
 			// Level 3: repos (e.g., mindtrail)
 			repos, err := os.ReadDir(ownerPath)
 			if err != nil {
-				continue // skip unreadable owner dirs
+				readErrors = append(readErrors, err)
+				continue
 			}
 
 			for _, repo := range repos {
@@ -82,6 +86,9 @@ func ScanAll(projectsRoot string) ([]DiscoveredProject, error) {
 				repoPath := filepath.Join(ownerPath, repo.Name())
 				spinToml := filepath.Join(repoPath, ".spin.toml")
 				_, statErr := os.Stat(spinToml)
+				if statErr != nil && !os.IsNotExist(statErr) {
+					readErrors = append(readErrors, statErr)
+				}
 				hasConfig := statErr == nil
 
 				projects = append(projects, DiscoveredProject{
@@ -96,7 +103,7 @@ func ScanAll(projectsRoot string) ([]DiscoveredProject, error) {
 		}
 	}
 
-	return projects, nil
+	return projects, errors.Join(readErrors...)
 }
 
 // Scan scans projectsRoot for directories containing .spin.toml.
@@ -104,10 +111,6 @@ func ScanAll(projectsRoot string) ([]DiscoveredProject, error) {
 // This is equivalent to ScanAll filtered to only projects with HasConfig == true.
 func Scan(projectsRoot string) ([]DiscoveredProject, error) {
 	all, err := ScanAll(projectsRoot)
-	if err != nil {
-		return nil, err
-	}
-
 	var configured []DiscoveredProject
 	for _, p := range all {
 		if p.HasConfig {
@@ -115,5 +118,5 @@ func Scan(projectsRoot string) ([]DiscoveredProject, error) {
 		}
 	}
 
-	return configured, nil
+	return configured, err
 }

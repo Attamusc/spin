@@ -217,7 +217,7 @@ func TestStatusUncertainty(t *testing.T) {
 				first := filepath.Join(cfg.ProjectsRoot, "github.com", "owner", "repo")
 				second := filepath.Join(cfg.ProjectsRoot, "gitlab.com", "owner", "repo")
 				for _, d := range r.Diagnostics {
-					if d.Code == "project_ambiguous" && (strings.Index(d.Message, first) < 0 || strings.Index(d.Message, second) <= strings.Index(d.Message, first)) {
+					if d.Code == "project_ambiguous" && (!strings.Contains(d.Message, first) || strings.Index(d.Message, second) <= strings.Index(d.Message, first)) {
 						t.Fatalf("unsorted candidates: %s", d.Message)
 					}
 				}

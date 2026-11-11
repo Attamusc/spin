@@ -1,7 +1,8 @@
 # Observational status contract (v1)
 
-Specification only; not implemented by this change. Source baseline:
-`5201701c49da5cd6fa6e7783f0f2a10a2ca955b4`.
+Implemented contract for `spin status`, the dashboard, and advisory port checks.
+The historical implementation notes below refer to source baseline
+`5201701c49da5cd6fa6e7783f0f2a10a2ca955b4`; they are not descriptions of current code.
 
 ## Command and safety boundary
 
@@ -148,7 +149,7 @@ render its help even on collection failure, and return exit 1 on incomplete
 observation. Plain status remains stdout data; dashboard/help remain stderr.
 Cobra error/usage handling must avoid duplicate diagnostics after JSON emission.
 
-## Affected implementation paths
+## Historical implementation baseline
 
 Source inspection (not runtime verification) found:
 
@@ -210,7 +211,7 @@ Implementation sequence:
 5. Run `make test`, `make vet`, and scoped CLI fixtures; independently review the
    read-only boundary. Existing passing tests alone do not establish the contract.
 
-## Baseline evidence and parent-ticket refinements
+## Historical baseline evidence and parent-ticket refinements
 
 Executed before writing this specification, in this checkout:
 

@@ -1,6 +1,7 @@
 package process
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -62,7 +63,8 @@ func StartBackground(opts BackgroundOptions) (int, error) {
 	// Write PID file
 	if err := WritePID(opts.PIDFile, pid); err != nil {
 		// Try to kill the process if we can't write the PID file
-		_ = cmd.Process.Kill()
+		_ = syscall.Kill(-pid, syscall.SIGKILL)
+		_ = cmd.Wait()
 		logFile.Close()
 		return 0, fmt.Errorf("could not write PID file: %w", err)
 	}
@@ -83,32 +85,39 @@ func StartBackground(opts BackgroundOptions) (int, error) {
 // Signals are sent to the process group (-pid) since background processes
 // are started in their own session with Setsid.
 func StopBackground(pid int) error {
-	// Send SIGTERM to the process group
+	if err := validatePID(pid); err != nil {
+		return err
+	}
+	pg, err := syscall.Getpgid(pid)
+	if err != nil {
+		return fmt.Errorf("could not verify process group: %w", err)
+	}
+	if pg != pid {
+		return fmt.Errorf("PID %d is not a process group leader", pid)
+	}
+	if err := Probe(pid); err != nil {
+		return fmt.Errorf("could not probe PID %d: %w", pid, err)
+	}
 	pgid := -pid
 	if err := syscall.Kill(pgid, syscall.SIGTERM); err != nil {
-		// Try direct PID if process group kill fails
-		if err2 := syscall.Kill(pid, syscall.SIGTERM); err2 != nil {
-			return fmt.Errorf("could not send SIGTERM to PID %d: %w", pid, err2)
-		}
-	}
-
-	// Poll every 100ms for up to 5 seconds
-	for i := 0; i < 50; i++ {
-		if !IsProcessAlive(pid) {
+		if errors.Is(err, syscall.ESRCH) {
 			return nil
 		}
-		// Sleep 100ms
+		return fmt.Errorf("could not send SIGTERM to group %d: %w", pid, err)
+	}
+	// Check the entire group: descendants may outlive the leader.
+	for i := 0; i < 50; i++ {
+		err := syscall.Kill(pgid, 0)
+		if errors.Is(err, syscall.ESRCH) {
+			return nil
+		}
+		if err != nil {
+			return fmt.Errorf("could not probe group %d: %w", pid, err)
+		}
 		sleepMs(100)
 	}
-
-	// Process still alive, send SIGKILL to process group
-	_ = syscall.Kill(pgid, syscall.SIGKILL)
-	if err := syscall.Kill(pid, syscall.SIGKILL); err != nil {
-		// Process may have died between the check and the kill
-		if !IsProcessAlive(pid) {
-			return nil
-		}
-		return fmt.Errorf("could not send SIGKILL to PID %d: %w", pid, err)
+	if err := syscall.Kill(pgid, syscall.SIGKILL); err != nil && !errors.Is(err, syscall.ESRCH) {
+		return fmt.Errorf("could not send SIGKILL to group %d: %w", pid, err)
 	}
 
 	return nil

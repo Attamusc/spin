@@ -1,223 +1,227 @@
 package db
 
 import (
+	"bytes"
+	"database/sql"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
-
-	"github.com/attamusc/spin/internal/process"
 )
 
-func TestWalCheckpoint_NoWAL(t *testing.T) {
-	tmpDir := t.TempDir()
-	dbPath := filepath.Join(tmpDir, "test.db")
-
-	// Create an empty DB file
-	if err := os.WriteFile(dbPath, []byte("fake db"), 0644); err != nil {
-		t.Fatal(err)
-	}
-
-	// Should succeed (no-op) when no WAL file exists
-	if err := WalCheckpoint(dbPath); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-}
-
-func TestWalCheckpoint_WithWAL(t *testing.T) {
-	// Check if sqlite3 is available
-	if _, err := os.Stat("/usr/bin/sqlite3"); os.IsNotExist(err) {
-		t.Skip("sqlite3 not available")
-	}
-
-	tmpDir := t.TempDir()
-	dbPath := filepath.Join(tmpDir, "test.db")
-
-	// Create a real SQLite DB in WAL mode
-	createTestDB(t, dbPath)
-
-	// Create a WAL file to trigger the checkpoint
-	walPath := dbPath + "-wal"
-	if _, err := os.Stat(walPath); os.IsNotExist(err) {
-		// Write some data to force WAL creation
-		if err := os.WriteFile(walPath, []byte(""), 0644); err != nil {
-			t.Fatal(err)
-		}
-	}
-
-	// WAL checkpoint should succeed (or at least not crash)
-	err := WalCheckpoint(dbPath)
-	// The checkpoint may fail if the WAL file is not a real WAL,
-	// but it shouldn't panic. We mainly test the flow.
-	_ = err
-}
-
-// createTestDB creates a minimal SQLite database file.
-func createTestDB(t *testing.T, dbPath string) {
+func testDB(t *testing.T, path string) *sql.DB {
 	t.Helper()
-	f, err := os.Create(dbPath)
+	d, err := sql.Open("sqlite", path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	f.Close()
-}
-
-func TestCopyDB_BasicCopy(t *testing.T) {
-	tmpDir := t.TempDir()
-
-	srcPath := filepath.Join(tmpDir, "src.db")
-	dstPath := filepath.Join(tmpDir, "dst", "copy.db")
-
-	content := []byte("test database content")
-	if err := os.WriteFile(srcPath, content, 0644); err != nil {
+	if _, err = d.Exec("CREATE TABLE IF NOT EXISTS items(value); INSERT INTO items VALUES (42)"); err != nil {
 		t.Fatal(err)
 	}
-
-	if err := CopyDB(srcPath, dstPath); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	// Verify main file was copied
-	got, err := os.ReadFile(dstPath)
+	t.Cleanup(func() { d.Close() })
+	return d
+}
+func value(t *testing.T, path string) int {
+	t.Helper()
+	d, err := sql.Open("sqlite", path)
 	if err != nil {
-		t.Fatalf("could not read destination: %v", err)
+		t.Fatal(err)
 	}
-	if string(got) != string(content) {
-		t.Errorf("content mismatch: got %q, want %q", got, content)
+	defer d.Close()
+	var v int
+	if err = d.QueryRow("SELECT value FROM items").Scan(&v); err != nil {
+		t.Fatal(err)
+	}
+	return v
+}
+func TestCopyDBLiveWAL(t *testing.T) {
+	dir := t.TempDir()
+	src, dst := filepath.Join(dir, "src.db"), filepath.Join(dir, "dst.db")
+	d := testDB(t, src)
+	if _, err := d.Exec("PRAGMA journal_mode=WAL; UPDATE items SET value=99"); err != nil {
+		t.Fatal(err)
+	}
+	if err := CopyDB(src, dst); err != nil {
+		t.Fatal(err)
+	}
+	if got := value(t, dst); got != 99 {
+		t.Fatal(got)
+	}
+}
+func TestCopyDBPreservesRowIDs(t *testing.T) {
+	dir := t.TempDir()
+	src, dst := filepath.Join(dir, "src.db"), filepath.Join(dir, "dst.db")
+	d := testDB(t, src)
+	if _, err := d.Exec("PRAGMA journal_mode=WAL; DELETE FROM items; INSERT INTO items(rowid,value) VALUES(7,70),(42,420)"); err != nil {
+		t.Fatal(err)
+	}
+	if err := CopyDB(src, dst); err != nil {
+		t.Fatal(err)
+	}
+	copy, err := sql.Open("sqlite", dst)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer copy.Close()
+	var ids string
+	if err := copy.QueryRow("SELECT group_concat(rowid, ',') FROM (SELECT rowid FROM items ORDER BY rowid)").Scan(&ids); err != nil {
+		t.Fatal(err)
+	}
+	if ids != "7,42" {
+		t.Fatalf("rowids = %s, want 7,42", ids)
 	}
 }
 
-func TestCopyDB_WithSidecarFiles(t *testing.T) {
-	tmpDir := t.TempDir()
-
-	srcPath := filepath.Join(tmpDir, "src.db")
-	dstPath := filepath.Join(tmpDir, "dst", "copy.db")
-
-	// Create main DB and sidecar files
-	if err := os.WriteFile(srcPath, []byte("main db"), 0644); err != nil {
+func TestCopyDBBusySourceUntouched(t *testing.T) {
+	dir := t.TempDir()
+	src, dst := filepath.Join(dir, "src.db"), filepath.Join(dir, "dst.db")
+	source := testDB(t, src)
+	testDB(t, dst).Close()
+	before, err := os.ReadFile(dst)
+	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(srcPath+"-wal", []byte("wal data"), 0644); err != nil {
+	if _, err := source.Exec("BEGIN EXCLUSIVE; UPDATE items SET value=7"); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(srcPath+"-shm", []byte("shm data"), 0644); err != nil {
+	defer source.Exec("ROLLBACK")
+	if err := CopyDB(src, dst); err == nil {
+		t.Fatal("accepted busy source")
+	}
+	after, err := os.ReadFile(dst)
+	if err != nil {
 		t.Fatal(err)
 	}
-
-	if err := CopyDB(srcPath, dstPath); err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	if !bytes.Equal(before, after) {
+		t.Fatal("target changed")
 	}
+	temps, err := filepath.Glob(filepath.Join(dir, ".spin-snapshot-*"))
+	if err != nil || len(temps) != 0 {
+		t.Fatalf("temporary files: %v, %v", temps, err)
+	}
+}
 
-	// Verify all files were copied
-	for _, suffix := range []string{"", "-wal", "-shm"} {
-		if _, err := os.Stat(dstPath + suffix); os.IsNotExist(err) {
-			t.Errorf("expected %s to exist", dstPath+suffix)
+func TestCopyDBRefusesActiveTarget(t *testing.T) {
+	for _, wal := range []bool{false, true} {
+		t.Run(map[bool]string{false: "writer", true: "idle WAL"}[wal], func(t *testing.T) {
+			dir := t.TempDir()
+			src, dst := filepath.Join(dir, "src.db"), filepath.Join(dir, "dst.db")
+			testDB(t, src).Close()
+			d := testDB(t, dst)
+			statement := "BEGIN IMMEDIATE; UPDATE items SET value=7"
+			if wal {
+				statement = "PRAGMA journal_mode=WAL; UPDATE items SET value=7"
+			}
+			if _, err := d.Exec(statement); err != nil {
+				t.Fatal(err)
+			}
+			if err := CopyDB(src, dst); err == nil {
+				t.Fatal("accepted active target")
+			}
+			if err := RemoveDB(dst); err == nil {
+				t.Fatal("reset accepted active target")
+			}
+			if !wal {
+				d.Exec("ROLLBACK")
+			}
+		})
+	}
+}
+func TestCopyDBFailedSourceUntouched(t *testing.T) {
+	dir := t.TempDir()
+	dst := filepath.Join(dir, "dst.db")
+	testDB(t, dst).Close()
+	before, _ := os.ReadFile(dst)
+	for _, src := range []string{filepath.Join(dir, "missing"), filepath.Join(dir, "invalid")} {
+		if filepath.Base(src) == "invalid" {
+			os.WriteFile(src, []byte("not sqlite"), 0600)
+		}
+		if err := CopyDB(src, dst); err == nil {
+			t.Fatal("expected failure")
+		}
+		after, _ := os.ReadFile(dst)
+		if !bytes.Equal(before, after) {
+			t.Fatal("target changed")
+		}
+		temps, _ := filepath.Glob(filepath.Join(dir, ".spin-snapshot-*"))
+		if len(temps) != 0 {
+			t.Fatal(temps)
 		}
 	}
-
-	walContent, _ := os.ReadFile(dstPath + "-wal")
-	if string(walContent) != "wal data" {
-		t.Errorf("WAL content mismatch: got %q", walContent)
-	}
 }
-
-func TestCopyDB_WithoutSidecarFiles(t *testing.T) {
-	tmpDir := t.TempDir()
-
-	srcPath := filepath.Join(tmpDir, "src.db")
-	dstPath := filepath.Join(tmpDir, "dst", "copy.db")
-
-	if err := os.WriteFile(srcPath, []byte("main db"), 0644); err != nil {
+func TestRestoreRecoversStaleWAL(t *testing.T) {
+	// Abrupt process exit leaves real, committed WAL sidecars behind.
+	if path := os.Getenv("SPIN_TEST_CRASH_DB"); path != "" {
+		d, err := sql.Open("sqlite", path)
+		if err != nil {
+			os.Exit(2)
+		}
+		if _, err = d.Exec("PRAGMA journal_mode=WAL; CREATE TABLE items(value); INSERT INTO items VALUES (7)"); err != nil {
+			os.Exit(3)
+		}
+		os.Exit(0)
+	}
+	dir := t.TempDir()
+	dst, src := filepath.Join(dir, "dst.db"), filepath.Join(dir, "src.db")
+	child := exec.Command(os.Args[0], "-test.run=^TestRestoreRecoversStaleWAL$")
+	child.Env = append(os.Environ(), "SPIN_TEST_CRASH_DB="+dst)
+	if out, err := child.CombinedOutput(); err != nil {
+		t.Fatalf("%v: %s", err, out)
+	}
+	if _, err := os.Stat(dst + "-wal"); err != nil {
 		t.Fatal(err)
 	}
-
-	if err := CopyDB(srcPath, dstPath); err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	testDB(t, src).Close()
+	before, _ := os.Stat(dst)
+	if err := CopyDB(src, dst); err != nil {
+		t.Fatal(err)
 	}
-
-	// Sidecar files should NOT exist
+	after, _ := os.Stat(dst)
+	if !os.SameFile(before, after) {
+		t.Fatal("inode changed")
+	}
+	if got := value(t, dst); got != 42 {
+		t.Fatal(got)
+	}
 	for _, suffix := range []string{"-wal", "-shm"} {
-		if _, err := os.Stat(dstPath + suffix); !os.IsNotExist(err) {
-			t.Errorf("expected %s to NOT exist", dstPath+suffix)
+		if _, err := os.Stat(dst + suffix); !os.IsNotExist(err) {
+			t.Fatalf("retained %s", suffix)
 		}
 	}
-}
-
-func TestRemoveDB(t *testing.T) {
-	tmpDir := t.TempDir()
-	dbPath := filepath.Join(tmpDir, "test.db")
-
-	// Create DB and sidecar files
-	for _, suffix := range []string{"", "-wal", "-shm"} {
-		if err := os.WriteFile(dbPath+suffix, []byte("data"), 0644); err != nil {
-			t.Fatal(err)
-		}
-	}
-
-	if err := RemoveDB(dbPath); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	// All files should be gone
-	for _, suffix := range []string{"", "-wal", "-shm"} {
-		if _, err := os.Stat(dbPath + suffix); !os.IsNotExist(err) {
-			t.Errorf("expected %s to be removed", dbPath+suffix)
-		}
-	}
-}
-
-func TestRemoveDB_OnlyMainFile(t *testing.T) {
-	tmpDir := t.TempDir()
-	dbPath := filepath.Join(tmpDir, "test.db")
-
-	if err := os.WriteFile(dbPath, []byte("data"), 0644); err != nil {
+	if err := RemoveDB(dst); err != nil {
 		t.Fatal(err)
 	}
-
-	if err := RemoveDB(dbPath); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if _, err := os.Stat(dbPath); !os.IsNotExist(err) {
-		t.Error("expected DB file to be removed")
+	if _, err := os.Stat(dst); !os.IsNotExist(err) {
+		t.Fatal("not removed")
 	}
 }
-
-func TestIsProfileRunning_DevAlwaysFalse(t *testing.T) {
-	tmpDir := t.TempDir()
-	if IsProfileRunning(tmpDir, "owner", "repo", "dev") {
-		t.Error("expected dev profile to never report running")
-	}
-}
-
-func TestIsProfileRunning_LiveNotRunning(t *testing.T) {
-	tmpDir := t.TempDir()
-	if IsProfileRunning(tmpDir, "owner", "repo", "live") {
-		t.Error("expected live profile to report not running when no PID file")
-	}
-}
-
-func TestIsProfileRunning_LiveWithStalePID(t *testing.T) {
-	tmpDir := t.TempDir()
-
-	// Create a PID file with a dead PID
-	pidFile := process.PIDFilePath(tmpDir, "owner", "repo")
-	if err := os.MkdirAll(filepath.Dir(pidFile), 0755); err != nil {
+func TestDatabaseUnderConfiguredRootAlias(t *testing.T) {
+	root := t.TempDir()
+	alias := filepath.Join(t.TempDir(), "root-alias")
+	if err := os.Symlink(root, alias); err != nil {
 		t.Fatal(err)
 	}
-	// Use PID 99999999 which almost certainly doesn't exist
-	if err := process.WritePID(pidFile, 99999999); err != nil {
-		t.Fatal(err)
+	src, dst := filepath.Join(alias, "src.db"), filepath.Join(alias, "dst.db")
+	testDB(t, src).Close()
+	if err := CopyDB(src, dst); err != nil {
+		t.Fatalf("rejected root alias: %v", err)
 	}
-
-	if IsProfileRunning(tmpDir, "owner", "repo", "live") {
-		t.Error("expected live profile with dead PID to report not running")
+	if got := value(t, dst); got != 42 {
+		t.Fatal(got)
 	}
 }
 
-func TestSnapshotPath(t *testing.T) {
-	got := SnapshotPath("/data", "attamusc", "myapp", "backup1")
-	want := filepath.Join("/data", "attamusc", "myapp", "snapshots", "backup1.db")
-	if got != want {
-		t.Errorf("got %q, want %q", got, want)
+func TestSymlinkRefused(t *testing.T) {
+	dir := t.TempDir()
+	src, dst := filepath.Join(dir, "src.db"), filepath.Join(dir, "dst.db")
+	testDB(t, src).Close()
+	if err := os.Symlink(src, dst); err != nil {
+		t.Fatal(err)
+	}
+	if err := CopyDB(src, dst); err == nil {
+		t.Fatal("accepted symlink")
+	}
+	if err := RemoveDB(dst); err == nil {
+		t.Fatal("removed symlink")
 	}
 }

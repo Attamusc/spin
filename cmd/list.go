@@ -50,19 +50,20 @@ func runList(cmd *cobra.Command, args []string) error {
 	} else {
 		projects, err = discovery.ScanAll(globalCfg.ProjectsRoot)
 	}
-	if err != nil {
-		return fmt.Errorf("failed to scan projects: %w", err)
-	}
-
+	// Preserve available rows on incomplete scans; the error still makes the
+	// command fail so scripts never confuse a partial inventory with a full one.
 	// Plain format — one name per line, for scripting and fzf
 	if format == "plain" {
 		for _, p := range projects {
-			fmt.Println(p.Name)
+			fmt.Fprintln(cmd.OutOrStdout(), p.Name)
 		}
-		return nil
+		return err
 	}
 
 	if len(projects) == 0 {
+		if err != nil {
+			return err
+		}
 		if configuredOnly {
 			fmt.Println("No configured projects found.")
 			fmt.Printf("Add a .spin.toml file to a project under %s to get started.\n", globalCfg.ProjectsRoot)
@@ -78,7 +79,7 @@ func runList(cmd *cobra.Command, args []string) error {
 	cyan := color.New(color.FgCyan).SprintFunc()
 	green := color.New(color.FgGreen).SprintFunc()
 
-	w := tabwriter.NewWriter(os.Stdout, 0, 0, 4, ' ', 0)
+	w := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 4, ' ', 0)
 	for _, p := range projects {
 		displayDir := p.Dir
 		home, err := os.UserHomeDir()
@@ -91,7 +92,8 @@ func runList(cmd *cobra.Command, args []string) error {
 		}
 		fmt.Fprintf(w, "%s\t%s\t%s\n", cyan(p.Name), cfgMarker, displayDir)
 	}
-	w.Flush()
-
-	return nil
+	if writeErr := w.Flush(); writeErr != nil {
+		return writeErr
+	}
+	return err
 }

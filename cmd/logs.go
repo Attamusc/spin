@@ -1,6 +1,8 @@
 package cmd
 
 import (
+	"bytes"
+	"context"
 	"fmt"
 	"io"
 	"os"
@@ -8,155 +10,92 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/attamusc/spin/internal/config"
 	"github.com/attamusc/spin/internal/process"
-	"github.com/attamusc/spin/internal/resolve"
-	"github.com/fatih/color"
 	"github.com/spf13/cobra"
 )
 
 var logsCmd = &cobra.Command{
-	Use:   "logs [project]",
-	Short: "Tail the log file for a live instance",
-	Long: `Tail the log file for a project's live mode background process.
-Shows the last ~50 lines, then follows new output.
-Ctrl-C exits the tail without affecting the running process.
-
-If no project argument is given, the project is resolved from the current directory.`,
-	Args:              cobra.MaximumNArgs(1),
-	ValidArgsFunction: completeProjectNames,
-	RunE:              runLogs,
+	Use: "logs [project]", Short: "Tail the log file for a live instance",
+	Long: `Show the last ~50 lines and follow live output. Ctrl-C stops tailing,
+not the live process. With no project argument, resolve from the current directory.`,
+	Args: cobra.MaximumNArgs(1), ValidArgsFunction: completeProjectNames, RunE: runLogs,
 }
 
-func init() {
-	rootCmd.AddCommand(logsCmd)
-}
+func init() { rootCmd.AddCommand(logsCmd) }
 
 func runLogs(cmd *cobra.Command, args []string) error {
-	globalCfg, err := config.LoadGlobal()
-	if err != nil {
-		return fmt.Errorf("failed to load global config: %w", err)
-	}
-
-	// Resolve project (from argument or CWD)
-	var arg string
-	if len(args) > 0 {
-		arg = args[0]
-	}
-	project, err := resolve.Resolve(arg, globalCfg.ProjectsRoot)
-	if err != nil {
-		return fmt.Errorf("failed to resolve project: %w", err)
-	}
-
-	logPath := process.LogFilePath(globalCfg.DataRoot, project.Owner, project.Repo)
-
-	if _, err := os.Stat(logPath); os.IsNotExist(err) {
-		cyan := color.New(color.FgCyan).SprintFunc()
-		fmt.Fprintf(os.Stderr, "No log file found for %s\n", cyan(project.Name))
-		fmt.Fprintf(os.Stderr, "Run 'spin up' to start the live instance first.\n")
-		return nil
-	}
-
-	cyan := color.New(color.FgCyan).SprintFunc()
-	fmt.Fprintf(os.Stderr, "Tailing logs for %s (%s)\n", cyan(project.Name), logPath)
-	fmt.Fprintf(os.Stderr, "Press Ctrl-C to stop tailing\n\n")
-
-	return tailFile(logPath)
-}
-
-// tailFile tails a file, printing the last ~50 lines then following new content.
-func tailFile(path string) error {
-	f, err := os.Open(path)
-	if err != nil {
-		return fmt.Errorf("could not open log file: %w", err)
-	}
-	defer f.Close()
-
-	// Print last ~50 lines
-	printLastLines(f, 50)
-
-	// Get current position for following
-	offset, err := f.Seek(0, io.SeekCurrent)
+	cfg, project, err := loadProject(args)
 	if err != nil {
 		return err
 	}
-
-	// Set up interrupt handler
-	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
-	defer signal.Stop(sigChan)
-
-	// Poll for new content
-	buf := make([]byte, 4096)
-	for {
-		select {
-		case <-sigChan:
-			fmt.Println()
-			return nil
-		default:
-		}
-
-		n, err := f.ReadAt(buf, offset)
-		if n > 0 {
-			os.Stdout.Write(buf[:n])
-			offset += int64(n)
-		}
-		if err != nil && err != io.EOF {
-			return err
-		}
-
-		time.Sleep(100 * time.Millisecond)
+	path := process.LogFilePath(cfg.DataRoot, project.Owner, project.Repo)
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		fmt.Fprintf(cmd.ErrOrStderr(), "No log file found for %s\nRun 'spin up' to start the live instance first.\n", project.Name)
+		return nil
 	}
+	fmt.Fprintf(cmd.ErrOrStderr(), "Tailing logs for %s (%s)\nPress Ctrl-C to stop tailing\n\n", project.Name, path)
+	ctx, stop := signal.NotifyContext(cmd.Context(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+	return tailFile(ctx, cmd.OutOrStdout(), path)
 }
 
-// printLastLines prints the last n lines from the current position in the file.
-func printLastLines(f *os.File, n int) {
-	// Get file size
-	info, err := f.Stat()
-	if err != nil || info.Size() == 0 {
-		return
+func tailFile(ctx context.Context, out io.Writer, path string) error {
+	file, err := os.Open(path)
+	if err != nil {
+		return err
 	}
-
-	// Read file from the end to find the last n newlines
-	size := info.Size()
-	bufSize := int64(8192)
-	if bufSize > size {
-		bufSize = size
+	defer func() { file.Close() }()
+	info, err := file.Stat()
+	if err != nil {
+		return err
 	}
-
-	// Read the tail of the file
-	buf := make([]byte, bufSize)
-	readAt := size - bufSize
-	_, err = f.ReadAt(buf, readAt)
-	if err != nil && err != io.EOF {
-		return
+	// Bound the initial read even when the log contains very long lines.
+	start := max(int64(0), info.Size()-8192)
+	if _, err := file.Seek(start, io.SeekStart); err != nil {
+		return err
 	}
-
-	// Count newlines from the end
-	lines := 0
-	pos := len(buf) - 1
-
-	// Skip trailing newline
-	if pos >= 0 && buf[pos] == '\n' {
-		pos--
+	data, err := io.ReadAll(io.LimitReader(file, 8192))
+	if err != nil {
+		return err
 	}
-
-	for pos >= 0 {
-		if buf[pos] == '\n' {
-			lines++
-			if lines >= n {
-				pos++
-				break
+	lines := bytes.SplitAfter(data, []byte{'\n'})
+	if len(lines) > 0 && len(lines[len(lines)-1]) == 0 {
+		lines = lines[:len(lines)-1]
+	}
+	if _, err := out.Write(bytes.Join(lines[max(0, len(lines)-50):], nil)); err != nil {
+		return err
+	}
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-ticker.C:
+		}
+		current, err := os.Stat(path)
+		if os.IsNotExist(err) {
+			continue
+		}
+		if err != nil {
+			return err
+		}
+		if !os.SameFile(info, current) {
+			replacement, err := os.Open(path)
+			if err != nil {
+				return err
+			}
+			file.Close()
+			file, info = replacement, current
+		} else if offset, err := file.Seek(0, io.SeekCurrent); err != nil {
+			return err
+		} else if current.Size() < offset {
+			if _, err := file.Seek(0, io.SeekStart); err != nil {
+				return err
 			}
 		}
-		pos--
+		if _, err := io.Copy(out, file); err != nil {
+			return err
+		}
 	}
-	if pos < 0 {
-		pos = 0
-	}
-
-	os.Stdout.Write(buf[pos:])
-
-	// Seek to end for following
-	f.Seek(0, io.SeekEnd)
 }

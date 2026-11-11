@@ -265,3 +265,50 @@ func TestScan_ProjectDetails(t *testing.T) {
 		t.Errorf("expected Dir=%q, got %q", expectedDir, p.Dir)
 	}
 }
+
+func TestScanReportsConfigStatErrors(t *testing.T) {
+	root := t.TempDir()
+	createDiscoverableProject(t, root, "visible", "owner", "app")
+	createProjectDirOnly(t, root, "uninspectable", "owner", "app")
+	config := filepath.Join(root, "uninspectable", "owner", "app", ".spin.toml")
+	// ELOOP is deterministic even as root, unlike chmod-based permission errors.
+	if err := os.Symlink(".spin.toml", config); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(config); err == nil || os.IsNotExist(err) {
+		t.Fatalf("fixture did not produce a non-ENOENT stat failure: %v", err)
+	}
+	all, err := ScanAll(root)
+	if err == nil || len(all) != 2 {
+		t.Fatalf("ScanAll discarded uncertainty or available rows: projects=%+v err=%v", all, err)
+	}
+	configured, err := Scan(root)
+	if err == nil || len(configured) != 1 || configured[0].Host != "visible" {
+		t.Fatalf("Scan discarded uncertainty or accessible config: projects=%+v err=%v", configured, err)
+	}
+}
+
+func TestScanRetainsPartialResults(t *testing.T) {
+	root := t.TempDir()
+	createDiscoverableProject(t, root, "good", "owner", "repo")
+	blocked := filepath.Join(root, "blocked")
+	if err := os.Mkdir(blocked, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(blocked, 0); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Chmod(blocked, 0700) })
+	if _, err := os.ReadDir(blocked); err == nil {
+		t.Skip("directory permissions do not prevent reads on this platform/user")
+	}
+	for _, scan := range []func(string) ([]DiscoveredProject, error){ScanAll, Scan} {
+		projects, err := scan(root)
+		if err == nil {
+			t.Error("missing nested read error")
+		}
+		if len(projects) != 1 || projects[0].Name != "owner/repo" {
+			t.Errorf("lost available projects: %+v", projects)
+		}
+	}
+}

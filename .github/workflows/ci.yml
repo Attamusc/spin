@@ -1,0 +1,36 @@
+name: CI
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        go: ['1.25.x', '1.26.x']
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ matrix.go }}
+          cache: true
+      - name: Install zsh for executable shell fixtures
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y zsh
+      - run: command -v zsh
+      - run: test -z "$(gofmt -l cmd internal main.go)"
+      - run: make test-race
+      - run: make vet build
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.x'
+          cache: true
+      - run: make lint vuln

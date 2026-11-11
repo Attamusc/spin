@@ -20,12 +20,11 @@ intercepts the output and cd's into the printed path.
 Project formats:
   owner/repo    Navigate to a specific project
   repo          Short name lookup (case-insensitive)
-  (empty)       Interactive picker via fzf (requires shell integration)
+  (empty)       List project names (Ctrl+Space opens the shell's fzf picker)
 
-If the project doesn't exist locally and can be identified as owner/repo,
-you'll be prompted to clone it.`,
+If the project doesn't exist locally, a clone command is suggested.`,
 	Args:              cobra.MaximumNArgs(1),
-	ValidArgsFunction: completeAllProjectNames,
+	ValidArgsFunction: completeProjectNames,
 	RunE:              runGo,
 }
 
@@ -47,18 +46,18 @@ func runGo(cmd *cobra.Command, args []string) error {
 	if arg == "" {
 		// No argument — list all projects for piping to fzf (or the shell widget handles it)
 		projects, err := discovery.ScanAll(globalCfg.ProjectsRoot)
-		if err != nil {
-			return fmt.Errorf("failed to scan projects: %w", err)
-		}
 		if len(projects) == 0 {
-			fmt.Fprintln(os.Stderr, "No projects found.")
+			if err != nil {
+				return err
+			}
+			fmt.Fprintln(cmd.ErrOrStderr(), "No projects found.")
 			return nil
 		}
 		// Print all project names for fzf selection
 		for _, p := range projects {
-			fmt.Println(p.Name)
+			fmt.Fprintln(cmd.OutOrStdout(), p.Name)
 		}
-		return nil
+		return err
 	}
 
 	rd, err := resolve.ResolveAny(arg, globalCfg.ProjectsRoot, globalCfg.DefaultOwner)
@@ -77,27 +76,4 @@ func runGo(cmd *cobra.Command, args []string) error {
 	fmt.Println(rd.Dir)
 
 	return nil
-}
-
-// completeAllProjectNames returns a cobra completion function that suggests
-// ALL discovered project names (including those without .spin.toml).
-// When toComplete is non-empty, results are fuzzy-filtered using segment-wise
-// substring matching so the shell receives only matching candidates.
-func completeAllProjectNames(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
-	if len(args) > 0 {
-		return nil, cobra.ShellCompDirectiveNoFileComp
-	}
-
-	globalCfg, err := config.LoadGlobal()
-	if err != nil {
-		return nil, cobra.ShellCompDirectiveNoFileComp
-	}
-
-	projects, err := discovery.ScanAll(globalCfg.ProjectsRoot)
-	if err != nil {
-		return nil, cobra.ShellCompDirectiveNoFileComp
-	}
-
-	names := fuzzyFilterProjects(projects, toComplete)
-	return names, cobra.ShellCompDirectiveNoFileComp
 }

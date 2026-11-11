@@ -14,21 +14,11 @@ import (
 )
 
 var newCmd = &cobra.Command{
-	Use:   "new <name>",
-	Short: "Create a new project directory",
-	Long: `Create a new project directory with VCS initialization.
-
-Name formats:
-  repo          Create under default_host/default_owner/repo
-  owner/repo    Create under default_host/owner/repo
-
-Options:
-  --template    Apply a named template from config [templates] section
-
-If no template is specified, a minimal directory structure is created
-(docs/plans/). The project is initialized as a jj+git colocated repo.`,
-	Args: cobra.ExactArgs(1),
-	RunE: runNew,
+	Use: "new <name>", Short: "Create a new project directory",
+	Long: `Create owner/repo (or repo under default_owner), optionally applying a
+named --template, then initialize a jj/git repository. Without a template,
+create docs/plans/. Print the project path for shell navigation.`,
+	Args: cobra.ExactArgs(1), RunE: runNew,
 }
 
 func init() {
@@ -36,86 +26,61 @@ func init() {
 	rootCmd.AddCommand(newCmd)
 }
 
-func runNew(cmd *cobra.Command, args []string) error {
-	globalCfg, err := config.LoadGlobal()
+func runNew(cmd *cobra.Command, args []string) (err error) {
+	cfg, err := config.LoadGlobal()
 	if err != nil {
-		return fmt.Errorf("failed to load global config: %w", err)
+		return err
 	}
-
-	tmplName, _ := cmd.Flags().GetString("template")
-
-	name := args[0]
-	var owner, repo string
-
-	if strings.Contains(name, "/") {
-		parts := strings.SplitN(name, "/", 2)
-		if parts[0] == "" || parts[1] == "" {
-			return fmt.Errorf("invalid name %q, expected owner/repo", name)
+	if strings.Contains(args[0], "://") {
+		return fmt.Errorf("expected repo or owner/repo, not a URL")
+	}
+	host, owner, repo, err := parseRepoArg(args[0], cfg.DefaultHost, cfg.DefaultOwner, "")
+	if err != nil {
+		return err
+	}
+	owner, repo = strings.ToLower(owner), strings.ToLower(repo)
+	target, err := config.ProjectPath(cfg.ProjectsRoot, host, owner, repo)
+	if err != nil {
+		return err
+	}
+	name, _ := cmd.Flags().GetString("template")
+	source := cfg.Templates[name]
+	if name != "" {
+		if info, e := os.Stat(source); e != nil || !info.IsDir() {
+			return fmt.Errorf("template %q is not a configured directory", name)
 		}
-		owner = strings.ToLower(parts[0])
-		repo = strings.ToLower(parts[1])
-	} else {
-		if globalCfg.DefaultOwner == "" {
-			return fmt.Errorf("cannot create project with short name %q: set default_owner in config", name)
-		}
-		owner = globalCfg.DefaultOwner
-		repo = strings.ToLower(name)
 	}
-
-	targetDir := filepath.Join(globalCfg.ProjectsRoot, globalCfg.DefaultHost, owner, repo)
-
-	// Check if already exists
-	if info, err := os.Stat(targetDir); err == nil && info.IsDir() {
-		return fmt.Errorf("directory already exists: %s", targetDir)
+	root, err := os.OpenRoot(cfg.ProjectsRoot)
+	if err != nil {
+		return err
 	}
-
-	// Create directory
-	if err := os.MkdirAll(targetDir, 0755); err != nil {
-		return fmt.Errorf("failed to create directory: %w", err)
+	defer root.Close()
+	rel := filepath.Join(host, owner, repo)
+	if err := root.MkdirAll(filepath.Dir(rel), 0755); err != nil {
+		return err
 	}
-
-	// Apply template if specified
-	if tmplName != "" {
-		tmplPath, ok := globalCfg.Templates[tmplName]
-		if !ok {
-			// Clean up the created directory on error
-			os.RemoveAll(targetDir)
-			var available []string
-			for k := range globalCfg.Templates {
-				available = append(available, k)
+	if err := root.Mkdir(rel, 0755); err != nil {
+		return err
+	}
+	defer func() {
+		if err != nil {
+			if cleanup := root.RemoveAll(rel); cleanup != nil {
+				err = fmt.Errorf("%w (cleanup failed: %v)", err, cleanup)
 			}
-			if len(available) > 0 {
-				return fmt.Errorf("template %q not found. Available: %s", tmplName, strings.Join(available, ", "))
-			}
-			return fmt.Errorf("template %q not found. No templates configured", tmplName)
 		}
-		if _, err := os.Stat(tmplPath); os.IsNotExist(err) {
-			os.RemoveAll(targetDir)
-			return fmt.Errorf("template directory does not exist: %s", tmplPath)
-		}
-		if err := template.Apply(tmplPath, targetDir); err != nil {
-			os.RemoveAll(targetDir)
-			return fmt.Errorf("failed to apply template %q: %w", tmplName, err)
-		}
-		fmt.Fprintf(os.Stderr, "Applied template %q\n", tmplName)
+	}()
+	if name != "" {
+		err = template.Apply(source, target)
 	} else {
-		// Create minimal scaffolding
-		plansDir := filepath.Join(targetDir, "docs", "plans")
-		if err := os.MkdirAll(plansDir, 0755); err != nil {
-			return fmt.Errorf("failed to create scaffolding: %w", err)
-		}
+		err = root.MkdirAll(filepath.Join(rel, "docs", "plans"), 0755)
 	}
-
-	// Init VCS
-	if err := vcs.Init(targetDir); err != nil {
-		color.New(color.FgYellow).Fprintf(os.Stderr, "Warning: VCS init failed: %v\n", err)
+	if err != nil {
+		return err
 	}
-
-	cyan := color.New(color.FgCyan).SprintFunc()
-	color.New(color.FgGreen).Fprintf(os.Stderr, "Created %s\n", cyan(owner+"/"+repo))
-
-	// Print path to stdout for shell wrapper
-	fmt.Println(targetDir)
-
-	return nil
+	if initErr := vcs.Init(target); initErr != nil {
+		color.New(color.FgYellow).Fprintf(cmd.ErrOrStderr(), "Warning: VCS init failed: %v\n", initErr)
+	}
+	color.New(color.FgGreen).Fprintf(cmd.ErrOrStderr(), "Created %s/%s\n", owner, repo)
+	_, err = fmt.Fprintln(cmd.OutOrStdout(), target)
+	return err
 }
