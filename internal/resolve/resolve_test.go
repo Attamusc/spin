@@ -59,6 +59,10 @@ func TestResolutionFailsClosedOnConfigStatError(t *testing.T) {
 func TestFromDir_ProjectRoot(t *testing.T) {
 	tmpDir := t.TempDir()
 	projectDir := createProject(t, tmpDir, "github.com", "attamusc", "mindtrail")
+	expectedDir, err := filepath.EvalSymlinks(projectDir)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	rp, err := FromDir(projectDir, tmpDir)
 	if err != nil {
@@ -77,14 +81,18 @@ func TestFromDir_ProjectRoot(t *testing.T) {
 	if rp.Name != "attamusc/mindtrail" {
 		t.Errorf("expected Name=attamusc/mindtrail, got %q", rp.Name)
 	}
-	if rp.Dir != projectDir {
-		t.Errorf("expected Dir=%q, got %q", projectDir, rp.Dir)
+	if rp.Dir != expectedDir {
+		t.Errorf("expected Dir=%q, got %q", expectedDir, rp.Dir)
 	}
 }
 
 func TestFromDir_Subdirectory(t *testing.T) {
 	tmpDir := t.TempDir()
 	projectDir := createProject(t, tmpDir, "github.com", "attamusc", "mindtrail")
+	expectedDir, err := filepath.EvalSymlinks(projectDir)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	// Create a subdirectory
 	subDir := filepath.Join(projectDir, "src", "components")
@@ -100,8 +108,35 @@ func TestFromDir_Subdirectory(t *testing.T) {
 	if rp.Repo != "mindtrail" {
 		t.Errorf("expected Repo=mindtrail, got %q", rp.Repo)
 	}
-	if rp.Dir != projectDir {
-		t.Errorf("expected Dir=%q, got %q", projectDir, rp.Dir)
+	if rp.Dir != expectedDir {
+		t.Errorf("expected Dir=%q, got %q", expectedDir, rp.Dir)
+	}
+}
+
+func TestFromDir_ConfiguredRootAlias(t *testing.T) {
+	root := t.TempDir()
+	project := createProject(t, root, "github.com", "attamusc", "mindtrail")
+	expected, err := filepath.EvalSymlinks(project)
+	if err != nil {
+		t.Fatal(err)
+	}
+	alias := filepath.Join(t.TempDir(), "root-alias")
+	if err := os.Symlink(root, alias); err != nil {
+		t.Fatal(err)
+	}
+	projectAlias := filepath.Join(alias, "github.com", "attamusc", "mindtrail")
+	for _, subdir := range []string{"", "src"} {
+		dir := filepath.Join(projectAlias, subdir)
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			t.Fatal(err)
+		}
+		rp, err := FromDir(dir, alias)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if rp.Dir != expected || rp.Name != "attamusc/mindtrail" {
+			t.Fatalf("alias resolved to %+v, expected canonical directory %q", rp, expected)
+		}
 	}
 }
 
