@@ -53,7 +53,7 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 
 	// Single project update
 	if len(args) > 0 {
-		rd, err := resolve.ResolveAny(args[0], globalCfg.ProjectsRoot, globalCfg.DefaultOwner)
+		rd, err := resolve.ResolveAny(args[0], globalCfg.ProjectsRoot)
 		if err != nil {
 			return fmt.Errorf("failed to resolve project: %w", err)
 		}

@@ -5,7 +5,6 @@ import (
 	"os/exec"
 	"runtime"
 
-	"github.com/attamusc/spin/internal/process"
 	"github.com/fatih/color"
 	"github.com/spf13/cobra"
 )
@@ -53,27 +52,16 @@ func openURL(goos, url string, run func(string, ...string) error) error {
 }
 
 func runOpen(cmd *cobra.Command, args []string) error {
-	globalCfg, project, err := loadProject(args)
+	project, err := loadProject(args)
 	if err != nil {
 		return err
 	}
 
 	cyan := color.New(color.FgCyan).SprintFunc()
 
-	// Determine port: check live profile first (if running), then dev config
-	port := 0
-	pidFile := process.PIDFilePath(globalCfg.DataRoot, project.Owner, project.Repo)
-	pid, err := process.ReadPID(pidFile)
-	if err == nil && process.IsProcessAlive(pid) && project.Config.Live.Port > 0 {
-		port = project.Config.Live.Port
-	} else if project.Config.Dev.Port > 0 {
-		port = project.Config.Dev.Port
-	} else if project.Config.Live.Port > 0 {
-		port = project.Config.Live.Port
-	}
-
-	if port == 0 {
-		return fmt.Errorf("no port configured for %s (set [dev].port or [live].port in .spin.toml)", project.Name)
+	port, err := project.browserPort()
+	if err != nil {
+		return err
 	}
 
 	url := fmt.Sprintf("http://localhost:%d", port)

@@ -51,7 +51,7 @@ func TestResolutionFailsClosedOnConfigStatError(t *testing.T) {
 	if project, err := FromDir(visible, root); err == nil || project != nil {
 		t.Fatalf("CWD configured resolution ignored uncertainty: %+v, %v", project, err)
 	}
-	if project, err := ResolveAny("owner/app", root, ""); err == nil || project != nil {
+	if project, err := ResolveAny("owner/app", root); err == nil || project != nil {
 		t.Fatalf("directory resolution ignored uncertainty: %+v, %v", project, err)
 	}
 }
@@ -349,7 +349,7 @@ func TestResolveAny_OwnerRepo_WithoutConfig(t *testing.T) {
 	tmpDir := t.TempDir()
 	expectedDir := createDirOnly(t, tmpDir, "github.com", "attamusc", "nocfg")
 
-	rd, err := ResolveAny("attamusc/nocfg", tmpDir, "")
+	rd, err := ResolveAny("attamusc/nocfg", tmpDir)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -375,7 +375,7 @@ func TestResolveAny_OwnerRepo_WithConfig(t *testing.T) {
 	tmpDir := t.TempDir()
 	expectedDir := createProject(t, tmpDir, "github.com", "attamusc", "hascfg")
 
-	rd, err := ResolveAny("attamusc/hascfg", tmpDir, "")
+	rd, err := ResolveAny("attamusc/hascfg", tmpDir)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -389,7 +389,7 @@ func TestResolveAny_OwnerRepo_NotFound(t *testing.T) {
 	tmpDir := t.TempDir()
 	createDirOnly(t, tmpDir, "github.com", "attamusc", "exists")
 
-	_, err := ResolveAny("someone/nonexistent", tmpDir, "")
+	_, err := ResolveAny("someone/nonexistent", tmpDir)
 	if err == nil {
 		t.Fatal("expected error for non-existent owner/repo, got nil")
 	}
@@ -402,7 +402,7 @@ func TestResolveAny_ShortName_UniqueMatch(t *testing.T) {
 	tmpDir := t.TempDir()
 	expectedDir := createDirOnly(t, tmpDir, "github.com", "attamusc", "myproj")
 
-	rd, err := ResolveAny("myproj", tmpDir, "")
+	rd, err := ResolveAny("myproj", tmpDir)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -422,7 +422,7 @@ func TestResolveAny_ShortName_CaseInsensitive(t *testing.T) {
 	tmpDir := t.TempDir()
 	createDirOnly(t, tmpDir, "github.com", "attamusc", "myproj")
 
-	rd, err := ResolveAny("MyProj", tmpDir, "")
+	rd, err := ResolveAny("MyProj", tmpDir)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -437,7 +437,7 @@ func TestResolveAny_ShortName_AmbiguousMatch(t *testing.T) {
 	createDirOnly(t, tmpDir, "github.com", "attamusc", "webapp")
 	createDirOnly(t, tmpDir, "github.com", "otheruser", "webapp")
 
-	_, err := ResolveAny("webapp", tmpDir, "")
+	_, err := ResolveAny("webapp", tmpDir)
 	if err == nil {
 		t.Fatal("expected error for ambiguous short name, got nil")
 	}
@@ -451,7 +451,7 @@ func TestResolveAny_ShortName_NoMatch_WithSuggestions(t *testing.T) {
 	createDirOnly(t, tmpDir, "github.com", "attamusc", "mindtrail")
 
 	// "mind" is a substring of "mindtrail" -- should auto-resolve to single fuzzy match
-	result, err := ResolveAny("mind", tmpDir, "")
+	result, err := ResolveAny("mind", tmpDir)
 	if err != nil {
 		t.Fatalf("expected fuzzy match to auto-resolve, got error: %v", err)
 	}
@@ -464,7 +464,7 @@ func TestResolveAny_ShortName_NoMatch_NoSuggestions(t *testing.T) {
 	tmpDir := t.TempDir()
 	createDirOnly(t, tmpDir, "github.com", "attamusc", "myproj")
 
-	_, err := ResolveAny("zzzzz", tmpDir, "")
+	_, err := ResolveAny("zzzzz", tmpDir)
 	if err == nil {
 		t.Fatal("expected error for no match, got nil")
 	}
@@ -477,7 +477,7 @@ func TestResolveAny_EmptyArg_ErrorsOutsideRoot(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	// CWD is not within tmpDir, so should error
-	_, err := ResolveAny("", tmpDir, "")
+	_, err := ResolveAny("", tmpDir)
 	if err == nil {
 		t.Fatal("expected error when CWD is outside projects_root, got nil")
 	}
@@ -489,7 +489,7 @@ func TestResolveAny_OwnerRepo_FuzzyMatch(t *testing.T) {
 	tmpDir := t.TempDir()
 	expectedDir := createDirOnly(t, tmpDir, "github.com", "attamusc", "spin")
 
-	rd, err := ResolveAny("att/sp", tmpDir, "")
+	rd, err := ResolveAny("att/sp", tmpDir)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -506,7 +506,7 @@ func TestResolveAny_OwnerRepo_FuzzyAmbiguous(t *testing.T) {
 	createDirOnly(t, tmpDir, "github.com", "attamusc", "spin")
 	createDirOnly(t, tmpDir, "github.com", "attamusc", "splinter")
 
-	_, err := ResolveAny("att/sp", tmpDir, "")
+	_, err := ResolveAny("att/sp", tmpDir)
 	if err == nil {
 		t.Fatal("expected error for ambiguous fuzzy match, got nil")
 	}
@@ -519,7 +519,7 @@ func TestResolveAny_OwnerRepo_FuzzyNoMatch(t *testing.T) {
 	tmpDir := t.TempDir()
 	createDirOnly(t, tmpDir, "github.com", "attamusc", "spin")
 
-	_, err := ResolveAny("zzz/yyy", tmpDir, "")
+	_, err := ResolveAny("zzz/yyy", tmpDir)
 	if err == nil {
 		t.Fatal("expected error for no fuzzy match, got nil")
 	}
@@ -532,7 +532,7 @@ func TestResolveAny_OwnerRepo_ExactStillWins(t *testing.T) {
 	tmpDir := t.TempDir()
 	expectedDir := createDirOnly(t, tmpDir, "github.com", "attamusc", "spin")
 
-	rd, err := ResolveAny("attamusc/spin", tmpDir, "")
+	rd, err := ResolveAny("attamusc/spin", tmpDir)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -545,7 +545,7 @@ func TestResolveAny_OwnerRepo_FuzzyCaseInsensitive(t *testing.T) {
 	tmpDir := t.TempDir()
 	createDirOnly(t, tmpDir, "github.com", "attamusc", "spin")
 
-	rd, err := ResolveAny("ATT/SP", tmpDir, "")
+	rd, err := ResolveAny("ATT/SP", tmpDir)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -560,7 +560,7 @@ func TestResolveAny_ShortName_FuzzyMatch(t *testing.T) {
 	tmpDir := t.TempDir()
 	expectedDir := createDirOnly(t, tmpDir, "github.com", "attamusc", "spin")
 
-	rd, err := ResolveAny("sp", tmpDir, "")
+	rd, err := ResolveAny("sp", tmpDir)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -577,7 +577,7 @@ func TestResolveAny_ShortName_FuzzyAmbiguous(t *testing.T) {
 	createDirOnly(t, tmpDir, "github.com", "attamusc", "spin")
 	createDirOnly(t, tmpDir, "github.com", "attamusc", "splinter")
 
-	_, err := ResolveAny("sp", tmpDir, "")
+	_, err := ResolveAny("sp", tmpDir)
 	if err == nil {
 		t.Fatal("expected error for ambiguous fuzzy match, got nil")
 	}
@@ -619,13 +619,13 @@ func TestResolveAny_OwnerRepo_FuzzyEmptySegment(t *testing.T) {
 	createDirOnly(t, tmpDir, "github.com", "attamusc", "spin")
 
 	// "att/" — empty repo segment should not fuzzy-match
-	_, err := ResolveAny("att/", tmpDir, "")
+	_, err := ResolveAny("att/", tmpDir)
 	if err == nil {
 		t.Fatal("expected error for empty repo segment, got nil")
 	}
 
 	// "/spin" — empty owner segment should not fuzzy-match
-	_, err = ResolveAny("/spin", tmpDir, "")
+	_, err = ResolveAny("/spin", tmpDir)
 	if err == nil {
 		t.Fatal("expected error for empty owner segment, got nil")
 	}
@@ -637,7 +637,7 @@ func TestResolveAny_OwnerRepo_MultipleHosts(t *testing.T) {
 	createDirOnly(t, tmpDir, "github.com", "attamusc", "dualhost")
 	createDirOnly(t, tmpDir, "gitlab.com", "attamusc", "dualhost")
 
-	_, err := ResolveAny("attamusc/dualhost", tmpDir, "")
+	_, err := ResolveAny("attamusc/dualhost", tmpDir)
 	if err == nil || !strings.Contains(err.Error(), "github.com/attamusc/dualhost") || !strings.Contains(err.Error(), "gitlab.com/attamusc/dualhost") {
 		t.Fatalf("expected qualified ambiguity, got %v", err)
 	}
@@ -653,7 +653,7 @@ func TestIdentityBoundaries(t *testing.T) {
 			if configured {
 				_, err = FromName(name, root)
 			} else {
-				_, err = ResolveAny(name, root, "")
+				_, err = ResolveAny(name, root)
 			}
 			if err == nil || !strings.Contains(err.Error(), "a.example/owner/repo") || !strings.Contains(err.Error(), "b.example/owner/repo") {
 				t.Errorf("%q configured=%v: %v", name, configured, err)
@@ -667,7 +667,7 @@ func TestIdentityBoundaries(t *testing.T) {
 		if _, err := FromName(name, root); err == nil {
 			t.Errorf("accepted invalid name %q", name)
 		}
-		if _, err := ResolveAny(name, root, ""); err == nil {
+		if _, err := ResolveAny(name, root); err == nil {
 			t.Errorf("accepted invalid navigation name %q", name)
 		}
 	}

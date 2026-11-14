@@ -25,6 +25,14 @@ type ProfileConfig struct {
 	PreHook string            `toml:"pre_hook,omitempty"`
 }
 
+// ValidatePort accepts zero (unset) or a TCP port in 1..65535.
+func ValidatePort(port int) error {
+	if port < 0 || port > 65535 {
+		return fmt.Errorf("port must be between 1 and 65535, or 0 to leave unset")
+	}
+	return nil
+}
+
 // LoadProject parses .spin.toml from the given directory.
 func LoadProject(dir string) (*ProjectConfig, error) {
 	path := filepath.Join(dir, ".spin.toml")
@@ -86,8 +94,7 @@ func ProjectPath(root string, parts ...string) (string, error) {
 	return path, nil
 }
 
-// ResolveProfileDBPath returns the absolute path to the profile's DB file
-// and creates parent directories if they don't exist.
+// ResolveProfileDBPath validates and calculates the DB path without creating state.
 func ResolveProfileDBPath(dataRoot, owner, repo, profile, dbFilename string) (string, error) {
 	if profile != "dev" && profile != "live" {
 		return "", fmt.Errorf("profile must be 'dev' or 'live', got %q", profile)
@@ -95,14 +102,7 @@ func ResolveProfileDBPath(dataRoot, owner, repo, profile, dbFilename string) (st
 	if dbFilename == "" {
 		dbFilename = "data.db"
 	}
-	path, err := ProjectPath(filepath.Dir(dataRoot), filepath.Base(dataRoot), owner, repo, profile, dbFilename)
-	if err != nil {
-		return "", err
-	}
-	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
-		return "", fmt.Errorf("could not create data directory: %w", err)
-	}
-	return path, nil
+	return ProjectPath(filepath.Dir(dataRoot), filepath.Base(dataRoot), owner, repo, profile, dbFilename)
 }
 
 // ResolveEnv replaces {profile_db_path} in all env values with the given path.

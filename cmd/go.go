@@ -1,8 +1,8 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
-	"os"
 
 	"github.com/attamusc/spin/internal/config"
 	"github.com/attamusc/spin/internal/discovery"
@@ -55,25 +55,26 @@ func runGo(cmd *cobra.Command, args []string) error {
 		}
 		// Print all project names for fzf selection
 		for _, p := range projects {
-			fmt.Fprintln(cmd.OutOrStdout(), p.Name)
+			if _, writeErr := fmt.Fprintln(cmd.OutOrStdout(), p.Name); writeErr != nil {
+				return errors.Join(err, writeErr)
+			}
 		}
 		return err
 	}
 
-	rd, err := resolve.ResolveAny(arg, globalCfg.ProjectsRoot, globalCfg.DefaultOwner)
+	rd, err := resolve.ResolveAny(arg, globalCfg.ProjectsRoot)
 	if err != nil {
 		// Not found — suggest cloning if it looks like an owner/repo
 		cyan := color.New(color.FgCyan).SprintFunc()
-		fmt.Fprintf(os.Stderr, "%v\n", err)
-		fmt.Fprintf(os.Stderr, "\nTo clone it: %s\n", cyan(fmt.Sprintf("spin clone %s", arg)))
+		fmt.Fprintf(cmd.ErrOrStderr(), "%v\n", err)
+		fmt.Fprintf(cmd.ErrOrStderr(), "\nTo clone it: %s\n", cyan(fmt.Sprintf("spin clone %s", arg)))
 		return fmt.Errorf("project not found")
 	}
 
 	cyan := color.New(color.FgCyan).SprintFunc()
-	fmt.Fprintf(os.Stderr, "→ %s\n", cyan(rd.Name))
+	fmt.Fprintf(cmd.ErrOrStderr(), "→ %s\n", cyan(rd.Name))
 
 	// Print path as the last line of stdout — shell wrapper cd's into this
-	fmt.Println(rd.Dir)
-
-	return nil
+	_, err = fmt.Fprintln(cmd.OutOrStdout(), rd.Dir)
+	return err
 }

@@ -10,24 +10,15 @@ import (
 )
 
 func TestStatusCLIObservation(t *testing.T) {
-	binary := filepath.Join(t.TempDir(), "spin")
-	build := exec.Command("go", "build", "-o", binary, "..")
-	if out, err := build.CombinedOutput(); err != nil {
-		t.Fatalf("build: %v: %s", err, out)
-	}
+	binary := buildSpin(t)
 	home := t.TempDir()
 	projects := filepath.Join(home, "projects")
 	if err := os.MkdirAll(projects, 0755); err != nil {
 		t.Fatal(err)
 	}
 	run := func(args ...string) ([]byte, []byte, error) {
-		c := exec.Command(binary, args...)
-		c.Env = append(os.Environ(), "HOME="+home, "NO_COLOR=1")
-		var out, stderr bytes.Buffer
-		c.Stdout = &out
-		c.Stderr = &stderr
-		err := c.Run()
-		return out.Bytes(), stderr.Bytes(), err
+		stdout, stderr, err := captureCLI(spinCommand(t, binary, home, "", args...))
+		return stdout.Bytes(), stderr.Bytes(), err
 	}
 	out, stderr, err := run("status", "--format", "json")
 	if err != nil {
@@ -70,8 +61,7 @@ func TestStatusCLIObservation(t *testing.T) {
 	}
 	if full, openErr := os.OpenFile("/dev/full", os.O_WRONLY, 0); openErr == nil {
 		defer full.Close()
-		c := exec.Command(binary, "status", "--format", "json")
-		c.Env = append(os.Environ(), "HOME="+home)
+		c := spinCommand(t, binary, home, "", "status", "--format", "json")
 		c.Stdout = full
 		var failure bytes.Buffer
 		c.Stderr = &failure

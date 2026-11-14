@@ -120,9 +120,8 @@ func FromName(name, projectsRoot string) (*ResolvedProject, error) {
 	return loadProject(p)
 }
 
-// ResolveAny resolves directories without requiring configuration. defaultOwner
-// is retained for API compatibility; it does not influence local matching.
-func ResolveAny(arg, projectsRoot, defaultOwner string) (*ResolvedDir, error) {
+// ResolveAny resolves directories without requiring configuration.
+func ResolveAny(arg, projectsRoot string) (*ResolvedDir, error) {
 	if arg != "" {
 		return byName(arg, projectsRoot, false)
 	}

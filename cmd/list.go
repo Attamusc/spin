@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -55,7 +56,9 @@ func runList(cmd *cobra.Command, args []string) error {
 	// Plain format — one name per line, for scripting and fzf
 	if format == "plain" {
 		for _, p := range projects {
-			fmt.Fprintln(cmd.OutOrStdout(), p.Name)
+			if _, writeErr := fmt.Fprintln(cmd.OutOrStdout(), p.Name); writeErr != nil {
+				return errors.Join(err, writeErr)
+			}
 		}
 		return err
 	}
@@ -65,14 +68,11 @@ func runList(cmd *cobra.Command, args []string) error {
 			return err
 		}
 		if configuredOnly {
-			fmt.Println("No configured projects found.")
-			fmt.Printf("Add a .spin.toml file to a project under %s to get started.\n", globalCfg.ProjectsRoot)
-			fmt.Println("Run 'spin init' in a project directory to generate one.")
+			_, err = fmt.Fprintf(cmd.OutOrStdout(), "No configured projects found.\nAdd a .spin.toml file to a project under %s to get started.\nRun 'spin init' in a project directory to generate one.\n", globalCfg.ProjectsRoot)
 		} else {
-			fmt.Println("No projects found.")
-			fmt.Printf("Clone a repo with 'spin clone <repo>' or create one with 'spin new <name>'.\n")
+			_, err = fmt.Fprintln(cmd.OutOrStdout(), "No projects found.\nClone a repo with 'spin clone <repo>' or create one with 'spin new <name>'.")
 		}
-		return nil
+		return err
 	}
 
 	// Table format (default)
@@ -82,18 +82,17 @@ func runList(cmd *cobra.Command, args []string) error {
 	w := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 4, ' ', 0)
 	for _, p := range projects {
 		displayDir := p.Dir
-		home, err := os.UserHomeDir()
-		if err == nil {
+		home, homeErr := os.UserHomeDir()
+		if homeErr == nil {
 			displayDir = strings.Replace(displayDir, home, "~", 1)
 		}
 		cfgMarker := ""
 		if p.HasConfig {
 			cfgMarker = green("*")
 		}
-		fmt.Fprintf(w, "%s\t%s\t%s\n", cyan(p.Name), cfgMarker, displayDir)
+		if _, writeErr := fmt.Fprintf(w, "%s\t%s\t%s\n", cyan(p.Name), cfgMarker, displayDir); writeErr != nil {
+			return errors.Join(err, writeErr)
+		}
 	}
-	if writeErr := w.Flush(); writeErr != nil {
-		return writeErr
-	}
-	return err
+	return errors.Join(err, w.Flush())
 }

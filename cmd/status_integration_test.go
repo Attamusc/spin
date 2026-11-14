@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -45,10 +44,7 @@ func observationManifest(t *testing.T, root string) map[string]observationManife
 	return m
 }
 func TestStatusCLIContractMatrix(t *testing.T) {
-	binary := filepath.Join(t.TempDir(), "spin")
-	if out, err := exec.Command("go", "build", "-o", binary, "..").CombinedOutput(); err != nil {
-		t.Fatalf("build: %v %s", err, out)
-	}
+	binary := buildSpin(t)
 	for _, tc := range []string{"missing_defaults", "root_file", "bad_global", "empty", "empty_data", "live", "stale", "malformed", "bad_project", "ambiguous", "symlink"} {
 		t.Run(tc, func(t *testing.T) {
 			home := t.TempDir()
@@ -120,12 +116,9 @@ func TestStatusCLIContractMatrix(t *testing.T) {
 			before := observationManifest(t, home)
 			for repeat := 0; repeat < 2; repeat++ {
 				for _, args := range [][]string{{"status", "--format", "json"}, {"status"}, {"status", "--format", "plain"}, {}} {
-					c := exec.Command(binary, args...)
-					c.Env = append(os.Environ(), "HOME="+home, "CLICOLOR_FORCE=1", "PATH="+bin)
-					var stdout, stderr bytes.Buffer
-					c.Stdout = &stdout
-					c.Stderr = &stderr
-					err := c.Run()
+					c := spinCommand(t, binary, home, "", args...)
+					c.Env = append(c.Env, "NO_COLOR=", "CLICOLOR_FORCE=1", "PATH="+bin)
+					stdout, stderr, err := captureCLI(c)
 					if err != nil {
 						if exit, ok := err.(*exec.ExitError); !ok || exit.ExitCode() != 1 {
 							t.Fatalf("exit must be 1: %v", err)
@@ -153,7 +146,7 @@ func TestStatusCLIContractMatrix(t *testing.T) {
 						raw := append([]byte(nil), stdout.Bytes()...)
 						assertStatusJSONFields(t, raw)
 						var result statusResult
-						decoder := json.NewDecoder(&stdout)
+						decoder := json.NewDecoder(stdout)
 						if err := decoder.Decode(&result); err != nil {
 							t.Fatalf("decode: %v %s", err, stdout.Bytes())
 						}

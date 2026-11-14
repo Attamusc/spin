@@ -140,14 +140,16 @@ func TestResolveProfileDBPath(t *testing.T) {
 		t.Errorf("expected path=%q, got %q", expected, path)
 	}
 
-	// Verify directory was created
-	dir := filepath.Dir(path)
-	info, err := os.Stat(dir)
-	if err != nil {
-		t.Fatalf("directory not created: %v", err)
+	if _, err := os.Stat(dataRoot); !os.IsNotExist(err) {
+		t.Fatalf("path calculation created state or failed to inspect it: %v", err)
 	}
-	if !info.IsDir() {
-		t.Fatal("expected a directory")
+}
+
+func TestValidatePort(t *testing.T) {
+	for _, port := range []int{-1, 0, 1, 65535, 65536} {
+		if err := ValidatePort(port); (err != nil) != (port < 0 || port > 65535) {
+			t.Errorf("port %d: %v", port, err)
+		}
 	}
 }
 

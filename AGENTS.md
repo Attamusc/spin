@@ -11,7 +11,9 @@ spin/
   main.go                    # Entry point — calls cmd.Execute()
   cmd/                       # Cobra commands and shared CLI setup
     root.go                  # Root command, dashboard, shared project completion
-    project.go               # Configured-project setup and child exit result
+    project.go               # Managed project selection, validated paths, browser port, exit result
+    project_process.go       # Profile-owned dev/live operations
+    project_db.go            # Guarded DB operations; active-source snapshots remain allowed
     go.go                    # spin go — navigate to project directory (prints path to stdout)
     clone.go                 # spin clone — git clone repo into projects_root
     new.go                   # spin new — create project from template, init VCS
@@ -67,7 +69,8 @@ spin/
 - All `internal/` packages must have corresponding `_test.go` files with unit tests.
 - Tests use `t.TempDir()` for isolation — no shared test state.
 - Commands in `cmd/` follow a pattern: cobra command var, `init()` to register, `runX()` function.
-- Configured commands use the shared `loadProject(args)` helper; directory-only navigation/update use `resolve.ResolveAny` without requiring `.spin.toml`. Completion uses `completeProjectNames` for the shared all-project inventory.
+- Configured commands use `loadProject(args)` to obtain a concrete `managedProject`. Its operations own profile locks, PID checks, and preparation; handlers render progress/results. Path calculation, including `ResolveProfileDBPath`, never creates directories. Directory-only navigation/update use `resolve.ResolveAny` without requiring `.spin.toml`. Completion uses `completeProjectNames` for the shared all-project inventory.
+- `config.ValidatePort` accepts zero (unset) or 1..65535. Execution validates only the selected profile/port; status preserves identity and emits `invalid_port` rather than rejecting the whole config.
 - Clone/new parse and validate a target identity before filesystem changes. New creates its final directory exclusively and cleans up only directories it owns.
 - Color scheme: green = success, yellow = warnings, cyan = project names/commands, red = errors. Uses `fatih/color` which respects `NO_COLOR`.
 - Output goes to stderr (status messages), stdout is reserved for data.

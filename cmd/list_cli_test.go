@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"bytes"
 	"fmt"
 	"os"
 	"os/exec"
@@ -11,11 +10,7 @@ import (
 )
 
 func TestListCLI(t *testing.T) {
-	binary := filepath.Join(t.TempDir(), "spin")
-	build := exec.Command("go", "build", "-o", binary, "..")
-	if out, err := build.CombinedOutput(); err != nil {
-		t.Fatalf("build: %v: %s", err, out)
-	}
+	binary := buildSpin(t)
 	for _, tc := range []struct {
 		name      string
 		args      []string
@@ -67,11 +62,8 @@ func TestListCLI(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			c := exec.Command(binary, append([]string{"list"}, tc.args...)...)
-			c.Env = append(os.Environ(), "HOME="+home, "NO_COLOR=1")
-			var stdout, stderr bytes.Buffer
-			c.Stdout, c.Stderr = &stdout, &stderr
-			err := c.Run()
+			c := spinCommand(t, binary, home, "", append([]string{"list"}, tc.args...)...)
+			stdout, stderr, err := captureCLI(c)
 			if tc.wantError != "" {
 				exit, ok := err.(*exec.ExitError)
 				if !ok || exit.ExitCode() != 1 || stdout.Len() != 0 || !strings.Contains(stderr.String(), tc.wantError) {

@@ -2,11 +2,9 @@ package cmd
 
 import (
 	"bufio"
-	"context"
 	"fmt"
 	"net"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -43,11 +41,7 @@ func TestLifecycleCLIHelper(t *testing.T) {
 }
 
 func TestUpChildSurvivesCLIExit(t *testing.T) {
-	binary := filepath.Join(t.TempDir(), "spin")
-	build := exec.Command("go", "build", "-o", binary, "..")
-	if out, err := build.CombinedOutput(); err != nil {
-		t.Fatalf("build: %v: %s", err, out)
-	}
+	binary := buildSpin(t)
 	helper, err := os.Executable()
 	if err != nil {
 		t.Fatal(err)
@@ -71,12 +65,8 @@ func TestUpChildSurvivesCLIExit(t *testing.T) {
 		t.Fatal(err)
 	}
 	run := func(args ...string) ([]byte, error) {
-		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-		defer cancel()
-		cmd := exec.CommandContext(ctx, binary, args...)
-		cmd.Dir = project
-		cmd.Env = append(os.Environ(), "HOME="+home, "NO_COLOR=1")
-		return cmd.CombinedOutput()
+		stdout, stderr, err := captureCLI(spinCommand(t, binary, home, project, args...))
+		return append(stdout.Bytes(), stderr.Bytes()...), err
 	}
 	pidPath := filepath.Join(home, "projects", ".spin", "owner", "repo", "live.pid")
 	// Only this fixture's recorded group can be signaled, including on failed assertions.

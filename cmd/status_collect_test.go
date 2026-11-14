@@ -310,16 +310,12 @@ func TestStatusWriteFailure(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	os.Mkdir(filepath.Join(home, "projects"), 0755)
-	oldOut := statusCmd.OutOrStdout()
-	oldErr := statusCmd.ErrOrStderr()
-	defer statusCmd.SetOut(oldOut)
-	defer statusCmd.SetErr(oldErr)
-	statusCmd.SetOut(statusFailWriter{})
+	cmd := newStatusCommand()
+	cmd.SetOut(statusFailWriter{})
 	var stderr strings.Builder
-	statusCmd.SetErr(&stderr)
-	statusCmd.Flags().Set("format", "json")
-	defer statusCmd.Flags().Set("format", "plain")
-	if err := runStatus(statusCmd, nil); err == nil || !strings.Contains(stderr.String(), "Could not write") {
+	cmd.SetErr(&stderr)
+	cmd.Flags().Set("format", "json")
+	if err := runStatus(cmd, nil); err == nil || !strings.Contains(stderr.String(), "Could not write") {
 		t.Fatalf("output failure not surfaced: %v %s", err, stderr.String())
 	}
 }

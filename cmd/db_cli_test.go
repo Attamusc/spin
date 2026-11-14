@@ -3,7 +3,6 @@ package cmd
 import (
 	"database/sql"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"testing"
 
@@ -11,10 +10,7 @@ import (
 )
 
 func TestDBCLI(t *testing.T) {
-	binary := filepath.Join(t.TempDir(), "spin")
-	if out, err := exec.Command("go", "build", "-o", binary, "..").CombinedOutput(); err != nil {
-		t.Fatalf("build: %v: %s", err, out)
-	}
+	binary := buildSpin(t)
 	home := t.TempDir()
 	root := filepath.Join(home, "projects")
 	project := filepath.Join(root, "github.com", "owner", "repo")
@@ -26,12 +22,10 @@ func TestDBCLI(t *testing.T) {
 	}
 	run := func(ok bool, args ...string) {
 		t.Helper()
-		c := exec.Command(binary, append([]string{"db"}, args...)...)
-		c.Dir = project
-		c.Env = append(os.Environ(), "HOME="+home, "NO_COLOR=1")
-		out, err := c.CombinedOutput()
+		c := spinCommand(t, binary, home, project, append([]string{"db"}, args...)...)
+		stdout, stderr, err := captureCLI(c)
 		if (err == nil) != ok {
-			t.Fatalf("%v: %v: %s", args, err, out)
+			t.Fatalf("%v: %v: stdout=%s stderr=%s", args, err, stdout, stderr)
 		}
 	}
 	state := filepath.Join(root, ".spin", "owner", "repo")

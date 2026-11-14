@@ -1,8 +1,8 @@
 package cmd
 
 import (
+	"bytes"
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"strings"
@@ -37,18 +37,9 @@ func TestStatusPortCheckAdvisory(t *testing.T) {
 			cfg, path, _ := statusFixture(t, "other", "app", pid)
 			before, _ := os.Stat(path)
 			project := &resolve.ResolvedProject{Owner: "self", Repo: "app", Config: &config.ProjectConfig{Live: config.ProfileConfig{Port: 3000}}}
-			read, write, err := os.Pipe()
-			if err != nil {
-				t.Fatal(err)
-			}
-			previous := os.Stderr
-			os.Stderr = write
-			func() { defer func() { os.Stderr = previous; write.Close() }(); checkPortConflicts(cfg, project) }()
-			raw, err := io.ReadAll(read)
-			read.Close()
-			if err != nil {
-				t.Fatal(err)
-			}
+			var output bytes.Buffer
+			checkPortConflicts(&output, cfg, project)
+			raw := output.Bytes()
 			if strings.Contains(string(raw), "also configured") != (state == "live") {
 				t.Fatalf("%s warnings: %s", state, raw)
 			}

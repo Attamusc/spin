@@ -10,7 +10,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/attamusc/spin/internal/process"
 	"github.com/spf13/cobra"
 )
 
@@ -24,11 +23,14 @@ not the live process. With no project argument, resolve from the current directo
 func init() { rootCmd.AddCommand(logsCmd) }
 
 func runLogs(cmd *cobra.Command, args []string) error {
-	cfg, project, err := loadProject(args)
+	project, err := loadProject(args)
 	if err != nil {
 		return err
 	}
-	path := process.LogFilePath(cfg.DataRoot, project.Owner, project.Repo)
+	path, err := project.statePath("logs", "live.log")
+	if err != nil {
+		return err
+	}
 	if _, err := os.Stat(path); os.IsNotExist(err) {
 		fmt.Fprintf(cmd.ErrOrStderr(), "No log file found for %s\nRun 'spin up' to start the live instance first.\n", project.Name)
 		return nil

@@ -11,14 +11,15 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var statusCmd = &cobra.Command{
-	Use: "status", Short: "Observe recorded live-mode instances (read-only)", Args: cobra.NoArgs, RunE: runStatus,
+func newStatusCommand() *cobra.Command {
+	cmd := &cobra.Command{
+		Use: "status", Short: "Observe recorded live-mode instances (read-only)", Args: cobra.NoArgs, RunE: runStatus,
+	}
+	cmd.Flags().String("format", "plain", "Output format: plain or json")
+	return cmd
 }
 
-func init() {
-	statusCmd.Flags().String("format", "plain", "Output format: plain or json")
-	rootCmd.AddCommand(statusCmd)
-}
+func init() { rootCmd.AddCommand(newStatusCommand()) }
 
 var errStatusIncomplete = errors.New("status observation incomplete")
 

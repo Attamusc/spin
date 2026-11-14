@@ -51,9 +51,8 @@ func runShellInit(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("failed to generate zsh init: %w", err)
 		}
 
-		fmt.Print(output)
-
-		return nil
+		_, err = fmt.Fprint(cmd.OutOrStdout(), output)
+		return err
 
 	default:
 		return fmt.Errorf("unsupported shell %q. Supported: zsh", shellName)

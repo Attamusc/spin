@@ -52,7 +52,7 @@ func TestCommandsRetainPartialDiscovery(t *testing.T) {
 	if len(names) != 1 || names[0] != "owner/repo" {
 		t.Fatalf("partial completions: %q", names)
 	}
-	if _, _, err := loadProject([]string{"owner/repo"}); err == nil {
+	if _, err := loadProject([]string{"owner/repo"}); err == nil {
 		t.Fatal("resolution must fail closed when a host scan cannot prove uniqueness")
 	}
 	bin := t.TempDir()

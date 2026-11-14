@@ -333,7 +333,7 @@ func (o statusObserver) project(r *statusResult, row *statusInstance, root strin
 		r.diagnostic("project_config_error", path, "Could not load or validate project configuration")
 		return
 	}
-	if cfg.Live.Port < 0 || cfg.Live.Port > 65535 {
+	if err := config.ValidatePort(cfg.Live.Port); err != nil {
 		r.diagnostic("invalid_port", path, "Live port must be between 1 and 65535")
 		return
 	}

@@ -155,7 +155,7 @@ env = { DATABASE_URL = "file:{profile_db_path}", PORT = "3000" }
 ```
 
 - `{profile_db_path}` resolves to the full path of the profile's SQLite database
-- `port` is used for status display, conflict detection, and `spin open` — not enforced
+- `port` is used for status display, conflict detection, and `spin open`; it does not enforce which port the application listens on. Zero means unset; configured ports must be 1..65535. `dev` and `up` validate only their selected profile, and `open` validates the port it selects. Status retains project identity and reports `invalid_port` for an invalid live port.
 
 `spin status --format json` emits a schema-versioned observation with explicit
 nullable metadata and diagnostics. Exit 0 means complete (including empty or
