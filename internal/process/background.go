@@ -98,25 +98,34 @@ func StopBackground(pid int) error {
 	if err := Probe(pid); err != nil {
 		return fmt.Errorf("could not probe PID %d: %w", pid, err)
 	}
+	return terminateGroup(pid, syscall.Kill, sleepMs)
+}
+
+func terminateGroup(pid int, signal func(int, syscall.Signal) error, pause func(int)) error {
 	pgid := -pid
-	if err := syscall.Kill(pgid, syscall.SIGTERM); err != nil {
+	if err := signal(pgid, syscall.SIGTERM); err != nil {
 		if errors.Is(err, syscall.ESRCH) {
 			return nil
 		}
 		return fmt.Errorf("could not send SIGTERM to group %d: %w", pid, err)
 	}
-	// Check the entire group: descendants may outlive the leader.
+	// Descendants may outlive the leader. Darwin can return EPERM while only
+	// zombies remain; retry within the budget, but only ESRCH proves absence.
+	var probeErr error
 	for i := 0; i < 50; i++ {
-		err := syscall.Kill(pgid, 0)
-		if errors.Is(err, syscall.ESRCH) {
+		probeErr = signal(pgid, 0)
+		if errors.Is(probeErr, syscall.ESRCH) {
 			return nil
 		}
-		if err != nil {
-			return fmt.Errorf("could not probe group %d: %w", pid, err)
+		if probeErr != nil && !errors.Is(probeErr, syscall.EPERM) {
+			return fmt.Errorf("could not probe group %d: %w", pid, probeErr)
 		}
-		sleepMs(100)
+		pause(100)
 	}
-	if err := syscall.Kill(pgid, syscall.SIGKILL); err != nil && !errors.Is(err, syscall.ESRCH) {
+	if probeErr != nil {
+		return fmt.Errorf("could not probe group %d: %w", pid, probeErr)
+	}
+	if err := signal(pgid, syscall.SIGKILL); err != nil && !errors.Is(err, syscall.ESRCH) {
 		return fmt.Errorf("could not send SIGKILL to group %d: %w", pid, err)
 	}
 
